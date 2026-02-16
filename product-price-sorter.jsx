@@ -1233,7 +1233,7 @@ export default function App() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-3 md:p-6">
       <div className="max-w-6xl mx-auto">
         <div className="bg-white rounded-2xl shadow-xl p-4 md:p-8">
-          <h1 className="text-2xl md:text-4xl font-bold text-gray-800 mb-2">Product Price Sorter</h1>
+          <h1 className="text-2xl md:text-4xl font-bold text-gray-800 mb-2">Beelee</h1>
           <p className="text-sm md:text-base text-gray-600 mb-6">Compare products across 5 stores with smart pricing</p>
 
           <div className="flex gap-2 mb-6 border-b border-gray-200 overflow-x-auto">
