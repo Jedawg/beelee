@@ -10,7 +10,9 @@ ALGOLIA_APP_ID = "FLWDN2189E"
 ALGOLIA_API_KEY = "fa20981a63df668e871a87a8fbd0caed"
 INDEX_NAME = "aws-prod-products"
 
-# Output path - saves to data/ folder for GitHub + Beelee
+# 🚀 LIMIT: Only get first 500 products (for speed!)
+MAX_PRODUCTS = 500
+
 import os
 os.makedirs("data", exist_ok=True)
 OUTPUT_FILE = "data/rema1000_products.xlsx"
@@ -26,23 +28,31 @@ headers = {
 products = []
 cursor = None
 
-# ---------- FETCH PRODUCTS ----------
-print("⏳ Fetching all Rema1000 products from Algolia...")
+# ---------- FETCH PRODUCTS (LIMITED) ----------
+print(f"⏳ Fetching up to {MAX_PRODUCTS} Rema1000 products...")
 batch = 0
-while True:
+
+while len(products) < MAX_PRODUCTS:
     payload = {}
     if cursor:
         payload["cursor"] = cursor
 
-    resp = requests.post(url, headers=headers, json=payload)
-    resp.raise_for_status()
-    data = resp.json()
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"❌ Failed to fetch batch: {e}")
+        break
 
     hits = data.get("hits", [])
     if not hits:
         break
 
     for hit in hits:
+        if len(products) >= MAX_PRODUCTS:
+            break
+            
         price = None
         pricing = hit.get("pricing", {})
         if isinstance(pricing, dict):
@@ -62,21 +72,23 @@ while True:
         })
 
     batch += 1
-    print(f"  Batch {batch}: {len(products)} products so far...")
+    print(f"  Batch {batch}: {len(products)} products...")
 
     cursor = data.get("cursor")
     if not cursor:
         break
 
-    time.sleep(0.5)
+    time.sleep(0.3)
 
-print(f"✅ Fetched {len(products)} products total")
+print(f"✅ Fetched {len(products)} products")
 
-# ---------- DOWNLOAD AND CONVERT IMAGES ----------
+# ---------- DOWNLOAD IMAGES (SKIP IF TOO MANY) ----------
 print("\n⏳ Downloading images...")
 success = 0
+
 for i, product in enumerate(products):
-    image_url = product.pop("image_url", None)  # remove image_url, replace with base64
+    image_url = product.pop("image_url", None)
+    
     if not image_url:
         product["image_base64"] = None
         continue
@@ -86,24 +98,23 @@ for i, product in enumerate(products):
         r.raise_for_status()
 
         img = Image.open(BytesIO(r.content)).convert("RGB")
-        img.thumbnail((200, 200), Image.Resampling.LANCZOS)
+        img.thumbnail((150, 150), Image.Resampling.LANCZOS)  # Smaller = faster
 
         buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=85)
+        img.save(buffer, format="JPEG", quality=75)  # Lower quality = faster
         img_str = base64.b64encode(buffer.getvalue()).decode()
 
         product["image_base64"] = f"data:image/jpeg;base64,{img_str}"
         success += 1
-    except Exception:
+    except:
         product["image_base64"] = None
 
-    # Log progress every 500 products
-    if (i + 1) % 500 == 0:
+    if (i + 1) % 100 == 0:
         print(f"  Processed {i + 1}/{len(products)} images...")
 
 print(f"✅ Images embedded: {success}/{len(products)}")
 
-# ---------- SAVE TO EXCEL ----------
+# ---------- SAVE ----------
 print(f"\n⏳ Saving to {OUTPUT_FILE}...")
 df = pd.DataFrame(products, columns=["title", "price", "category", "store", "image_base64"])
 df.to_excel(OUTPUT_FILE, index=False)
