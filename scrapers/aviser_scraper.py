@@ -5,27 +5,22 @@ from io import BytesIO
 import re
 import base64
 from datetime import datetime, date
-from openpyxl import Workbook, load_workbook
+from openpyxl import Workbook
 
 # ---------------- CONFIG ----------------
 
 # ⚠️ UPDATE THESE URLS EACH WEEK with the latest catalog links!
 CATALOGS = {
-    "Netto": "https://netto.dayli.eu/f596-2026-nette-au08/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Lidl": "https://lidl.dayli.eu/36e9-soen-d-15-l-r-d-21-februar/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Rema1000": "https://rema1000.aviou.io/c8f6-2026-uge-8-rema-1000/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Brugsen": "https://brugsen.dayli.se/cb5e-2026-uge-7-brugsen/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Føtex": "https://foetex.dayli.eu/9049-2026-uge-8-9-foetex/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "SuperBrugsen & Kvickly": "https://kvickly.dayli.eu/c49f-2026-uge-6-7-kvickly/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Meny": "https://meny.dayli.eu/7959-2026-uge-8-meny/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Min Kobmand": "https://min-koebmand.dayli.eu/e52b-2026-uge-8-min-koebmand/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Spar": "https://spar.dayli.eu/9733-2026-uge-8-spar/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "365": "https://coop-365.dayli.eu/9ec8-2026-uge-7-365-discount/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
+    "Netto": "https://netto.dayli.eu/f596-2026-nette-au08/feed.json",
+    "Spar": "https://spar.dayli.eu/9733-2026-uge-8-spar/feed.json",
+    "Min Kobmand": "https://min-koebmand.dayli.eu/e52b-2026-uge-8-min-koebmand/feed.json",
+    # Add more stores as needed, but fewer = faster!
 }
 
-PRODUCT_IMAGE_SIZE = (150, 150)
+PRODUCT_IMAGE_SIZE = (100, 100)  # Smaller = faster
+IMAGE_QUALITY = 70  # Lower = faster
+REQUEST_TIMEOUT = 15  # Seconds before giving up
 
-# Output path - saves to data/ folder for GitHub + Beelee
 os.makedirs("data", exist_ok=True)
 OUTPUT_FILE = "data/aviser_products.xlsx"
 
@@ -37,9 +32,9 @@ def clean_text(text):
     return re.sub(r'[\x00-\x1F]', '', str(text)).strip()
 
 def image_to_base64(img):
-    """Convert a PIL image directly to base64 string (no disk needed)"""
+    """Convert PIL image to base64 (no disk)"""
     buffer = BytesIO()
-    img.save(buffer, format="JPEG", quality=85)
+    img.save(buffer, format="JPEG", quality=IMAGE_QUALITY)
     encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
     return f"data:image/jpeg;base64,{encoded}"
 
@@ -52,7 +47,7 @@ def calculate_remaining_days(data):
         exp_date = datetime.strptime(expiration, "%Y-%m-%d").date()
         today = date.today()
         return max((exp_date - today).days, 0)
-    except Exception:
+    except:
         return ""
 
 # ---------------- EXCEL SETUP ----------------
@@ -71,7 +66,8 @@ for store, url in CATALOGS.items():
     store_count = 0
 
     try:
-        data = requests.get(url, timeout=30).json()
+        print(f"  Fetching catalog...")
+        data = requests.get(url, timeout=REQUEST_TIMEOUT).json()
     except Exception as e:
         print(f"  ❌ Failed to fetch {store}: {e}")
         continue
@@ -88,9 +84,10 @@ for store, url in CATALOGS.items():
 
                 try:
                     page_img = Image.open(
-                        BytesIO(requests.get(image_url, timeout=30).content)
+                        BytesIO(requests.get(image_url, timeout=REQUEST_TIMEOUT).content)
                     ).convert("RGB")
-                except:
+                except Exception as e:
+                    print(f"  ⚠️  Failed to load page image: {e}")
                     continue
 
                 for zone in page.get("content_items", []):
