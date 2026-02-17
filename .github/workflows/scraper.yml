@@ -1,0 +1,85 @@
+name: 🐝 Beelee Nightly Scraper
+
+on:
+  # Run every night at midnight Copenhagen time (23:00 UTC)
+  schedule:
+    - cron: '0 23 * * *'
+
+  # Also lets you trigger it manually from the GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60  # Stop if it runs more than 60 minutes
+
+    steps:
+
+      # 1. Download your repository
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. Install Python 3.11
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # 3. Install all required libraries
+      - name: 📦 Install dependencies
+        run: |
+          pip install -r scrapers/requirements.txt
+
+      # 4. Run Rema1000 scraper
+      - name: 🛒 Run Rema1000 scraper
+        run: |
+          echo "Starting Rema1000 scraper..."
+          python scrapers/rema1000_scraper.py
+          echo "Rema1000 done!"
+        continue-on-error: true  # If this fails, still run the next one
+
+      # 5. Run Aviser (weekly offers) scraper
+      - name: 📰 Run Aviser scraper
+        run: |
+          echo "Starting Aviser scraper..."
+          python scrapers/aviser_scraper.py
+          echo "Aviser done!"
+        continue-on-error: true  # If this fails, still run the next one
+
+      # 6. Merge both Excel files into one products.xlsx
+      - name: 🔀 Merge products into one file
+        run: |
+          echo "Merging products..."
+          python scrapers/merge_products.py
+          echo "Merge done!"
+
+      # 7. Show what was created (useful for debugging)
+      - name: 📊 Show results
+        run: |
+          echo "Files in data/ folder:"
+          ls -lh data/ || echo "No data folder found"
+          echo ""
+          if [ -f "data/products.xlsx" ]; then
+            echo "✅ products.xlsx created successfully!"
+          else
+            echo "❌ products.xlsx was NOT created!"
+          fi
+
+      # 8. Save the Excel file back to GitHub
+      - name: 💾 Commit and push products.xlsx
+        run: |
+          git config --local user.email "beelee-bot@users.noreply.github.com"
+          git config --local user.name "Beelee Bot 🐝"
+          git add data/products.xlsx
+          
+          # Only commit if the file actually changed
+          if git diff --staged --quiet; then
+            echo "No changes to commit - products are the same"
+          else
+            git commit -m "🐝 Auto-update products $(date +'%Y-%m-%d %H:%M UTC')"
+            git push
+            echo "✅ Products pushed to GitHub!"
+          fi
