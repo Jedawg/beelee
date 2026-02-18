@@ -16,7 +16,7 @@ MAX_PRODUCTS = None  # None = unlimited, get everything!
 
 # MEDIUM RESOLUTION
 IMAGE_SIZE = (300, 300)  # Medium quality
-IMAGE_QUALITY = 85  # Good quality
+IMAGE_QUALITY = 75  # Good quality
 
 os.makedirs("data", exist_ok=True)
 OUTPUT_FILE = "data/rema1000_products.xlsx"
