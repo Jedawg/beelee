@@ -25,7 +25,7 @@ CATALOGS = {
 
 # MEDIUM RESOLUTION - Higher quality images!
 PRODUCT_IMAGE_SIZE = (300, 300)  # Medium resolution
-IMAGE_QUALITY = 85  # Good quality
+IMAGE_QUALITY = 75  # Good quality
 REQUEST_TIMEOUT = 20
 
 os.makedirs("data", exist_ok=True)
