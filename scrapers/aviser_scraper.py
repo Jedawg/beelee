@@ -24,7 +24,7 @@ CATALOGS = {
 }
 
 # MEDIUM RESOLUTION - Higher quality images!
-PRODUCT_IMAGE_SIZE = (300, 300)  # Medium resolution
+PRODUCT_IMAGE_SIZE = (150, 150)  # Medium resolution
 IMAGE_QUALITY = 75  # Good quality
 REQUEST_TIMEOUT = 20
 
