@@ -1,5 +1,5 @@
 """
-merge_products_with_categories.py
+merge_products.py
 ----------------------------------
 Merges products AND harmonizes categories automatically!
 """
@@ -11,7 +11,7 @@ from datetime import datetime
 os.makedirs("data", exist_ok=True)
 
 # ==================== CONFIG ====================
-MAX_TOTAL_PRODUCTS = 10000
+MAX_TOTAL_PRODUCTS = 100000
 HARMONIZE_CATEGORIES = True  # Set to False to skip
 
 # Category mapping
