@@ -11,16 +11,17 @@ from openpyxl import Workbook
 
 # ⚠️ UPDATE THESE URLS EACH WEEK with latest catalog links!
 CATALOGS = {
-    "Netto": "https://netto.dayli.eu/f596-2026-nette-au08/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Lidl": "https://lidl.dayli.eu/36e9-soen-d-15-l-r-d-21-februar/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Rema1000": "https://rema1000.aviou.io/c8f6-2026-uge-8-rema-1000/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Brugsen": "https://brugsen.dayli.se/cb5e-2026-uge-7-brugsen/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Føtex": "https://foetex.dayli.eu/9049-2026-uge-8-9-foetex/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "SuperBrugsen & Kvickly": "https://kvickly.dayli.eu/c49f-2026-uge-6-7-kvickly/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Meny": "https://meny.dayli.eu/7959-2026-uge-8-meny/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Min Kobmand": "https://min-koebmand.dayli.eu/e52b-2026-uge-8-min-koebmand/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "Spar": "https://spar.dayli.eu/9733-2026-uge-8-spar/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
-    "365": "https://coop-365.dayli.eu/9ec8-2026-uge-7-365-discount/feed.json?session_id=8d218c17-a144-41ca-b999-7f69b7f7a251&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
+    "Netto": "https://netto.dayli.eu/b5de-netto-2026-au09/feed.json?session_id=5bbdd836-2591-4e53-b18f-d3386e8e7b97&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
+    "Lidl": "https://lidl.dayli.eu/36e9-soen-d-15-l-r-d-21-februar/feed.json?session_id=5bbdd836-2591-4e53-b18f-d3386e8e7b97&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
+    "Rema1000": "https://publish.dayli.eu/2f7d-uge-9-2026-rema-1000-a/feed.json?session_id=5bbdd836-2591-4e53-b18f-d3386e8e7b97&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
+    "Brugsen": "https://brugsen.dayli.se/cb5e-2026-uge-7-brugsen/feed.json?session_id=492ff50b-1595-4dbd-be4e-e33c3d4272f0&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=",
+    "Bilka": "https://bilka.dayli.se/5d6f-2026-uge-9-bilka-food/feed.json?session_id=5bbdd836-2591-4e53-b18f-d3386e8e7b97&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3"
+    "Føtex": "https://foetex.dayli.eu/9049-2026-uge-8-9-foetex/feed.json?session_id=5bbdd836-2591-4e53-b18f-d3386e8e7b97&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
+    "SuperBrugsen & Kvickly": "https://kvickly.dayli.eu/6bf8-2026-uge-8-kvickly/feed.json?session_id=5bbdd836-2591-4e53-b18f-d3386e8e7b97&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
+    "Meny": "https://meny.dayli.eu/e832-2026-uge-9-meny/feed.json?session_id=5bbdd836-2591-4e53-b18f-d3386e8e7b97&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
+    "Min Kobmand": "https://min-koebmand.dayli.eu/e2cb-2026-uge-9-min-koebmand/feed.json?session_id=8d1cc7a5-7fad-4971-92aa-05dad8419cc5&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=",
+    "Spar": "https://spar.dayli.eu/35e9-2026-uge-9-spar/feed.json?session_id=5bbdd836-2591-4e53-b18f-d3386e8e7b97&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
+    "365": "https://coop-365.dayli.eu/bd64-2026-uge-8-365discount/feed.json?session_id=5bbdd836-2591-4e53-b18f-d3386e8e7b97&operating_system_version=unknown&application_version=web_version&device=web&mtuuid=ea98e203-7566-4275-b388-2c86b7be90e3",
 }
 
 # MEDIUM RESOLUTION - Higher quality images!
