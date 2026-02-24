@@ -37,7 +37,7 @@ KEYWORD_CATEGORIES = {
         # Danish
         "tomat", "agurk", "salat", "peber", "løg", "hvidløg", "kartoffel", "kartofler",
         "gulerod", "gulerødder", "broccoli", "blomkål", "squash", "zucchini", "aubergine",
-        "spinat", "grønkål", "rosenkål", "spidskål", "hvidkål", "rødkål",
+        "spinat", "grønkål", "rosenkål", "spidskål", "hvidkål", "rødkål", "blomme",
         "æble", "æbler", "banan", "bananer", "appelsin", "appelsiner", "pære", "pærer",
         "citron", "citroner", "lime", "avocado", "druer", "jordbær", "hindbær", "blåbær",
         "melon", "vandmelon", "ananas", "kiwi", "mango", "paprika", "chili",
