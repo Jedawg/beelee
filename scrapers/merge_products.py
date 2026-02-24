@@ -46,7 +46,7 @@ KEYWORD_CATEGORIES = {
         "citron", "citroner", "lime", "limer", "avocado", "avocadoer",
         "druer", "vindruer", "jordbær", "hindbær", "blåbær", "brombær", "solbær",
         "melon", "vandmelon", "honningmelon", "ananas", "kiwi", "kiwifrugter", 
-        "mango", "papaya", "fersken", "ferskner", "nektarin", "abrikos", "abrikoser",
+        "mango", "papaya", "fersken", "ferskner", "nektarin", "abrikos", "abrikoser", "blomme",
         # Herbs & greens
         "paprika", "chili", "chilipeber", "jalapeño",
         "persille", "basilikum", "koriander", "timian", "rosmarin", "dild", "mynte",
