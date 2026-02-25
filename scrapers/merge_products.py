@@ -201,7 +201,7 @@ KEYWORD_CATEGORIES = {
         "chips", "popcorn", "nachos", "tortilla chips", "pringles", "kims",
         "nødder", "nøddeblandning", "peanuts", "cashew", "cashewnødder", 
         "mandler", "hasselnødder", "valnødder", "pistacienødder",
-        "peanøtter", "jordnødder", "salte peanuts",
+        "peanøtter", "jordnødder", "salte peanuts","Coop nødder",
         # Candy
         "chokolade", "slik", "godteri", "bolsjer", "vingummi", "skumfiduser",
         "lakrids", "salt lakrids", "tyggegummi",
