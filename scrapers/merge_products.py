@@ -32,6 +32,20 @@ CATEGORY_MAP = {
     None: "Andet"
 }
 
+master_categories = [
+    "Frugt og grønt",
+    "Kød", 
+    "Fisk",
+    "Mejeri",
+    "Brød og kager",
+    "Drikkevarer",
+    "Slik og snacks",
+    "Frost",
+    "Morgenmad",
+    "Kolonial",
+    "Andet"
+]
+
 # Keywords for auto-categorization (MASSIVE EXPANSION!)
 KEYWORD_CATEGORIES = {
     "Frugt og grønt": [
