@@ -44,7 +44,7 @@ KEYWORD_CATEGORIES = {
         "radise", "radiser", "roe", "roer", "majskolbe", "majs",
         # Danish fruits
         "æble", "æbler", "banan", "bananer", "appelsin", "appelsiner", "pære", "pærer",
-        "citron", "citroner", "lime", "limer", "avocado", "avocadoer",
+        "citron", "citroner", "lime", "limer", "avocado", "avocadoer", "blomme",
         "druer", "vindruer", "jordbær", "hindbær", "blåbær", "brombær", "solbær",
         "melon", "vandmelon", "honningmelon", "ananas", "kiwi", "kiwifrugter", 
         "mango", "papaya", "fersken", "ferskner", "nektarin", "abrikos", "abrikoser",
