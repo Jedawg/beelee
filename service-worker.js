@@ -1,84 +1,136 @@
+// service-worker.js
+// Progressive Web App Service Worker for Beelee
+
 const CACHE_NAME = 'beelee-v1';
-const urlsToCache = [
-  './',
-  './index.html',
-  './manifest.json',
-  'https://cdn.tailwindcss.com',
+const RUNTIME_CACHE = 'beelee-runtime-v1';
+const DATA_CACHE = 'beelee-data-v1';
+
+// Files to cache immediately
+const STATIC_ASSETS = [
+  '/',
+  '/index.html',
+  '/manifest.json',
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
   'https://unpkg.com/@babel/standalone/babel.min.js',
+  'https://cdn.tailwindcss.com',
+  'https://unpkg.com/lucide@0.263.1/dist/umd/lucide.min.js',
   'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js'
 ];
 
-// Install event - cache files
+// Install event - cache static assets
 self.addEventListener('install', (event) => {
-  console.log('Service Worker: Installing...');
+  console.log('[Service Worker] Installing...');
+  
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('Service Worker: Caching files');
-        return cache.addAll(urlsToCache).catch(err => {
-          console.error('Service Worker: Cache failed', err);
-        });
+        console.log('[Service Worker] Caching static assets');
+        return cache.addAll(STATIC_ASSETS.map(url => new Request(url, {cache: 'reload'})));
       })
-  );
-  self.skipWaiting();
-});
-
-// Fetch event - serve from cache, fallback to network
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        // Cache hit - return response
-        if (response) {
-          return response;
-        }
-        
-        // Clone the request
-        const fetchRequest = event.request.clone();
-        
-        return fetch(fetchRequest).then(
-          (response) => {
-            // Check if valid response
-            if (!response || response.status !== 200 || response.type !== 'basic') {
-              return response;
-            }
-
-            // Clone the response
-            const responseToCache = response.clone();
-
-            caches.open(CACHE_NAME)
-              .then((cache) => {
-                cache.put(event.request, responseToCache);
-              });
-
-            return response;
-          }
-        ).catch(err => {
-          console.error('Fetch failed:', err);
-          // Return a custom offline page if available
-          return caches.match('./index.html');
-        });
-      })
+      .then(() => self.skipWaiting())
   );
 });
 
 // Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
-  console.log('Service Worker: Activating...');
-  const cacheWhitelist = [CACHE_NAME];
+  console.log('[Service Worker] Activating...');
+  
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheWhitelist.indexOf(cacheName) === -1) {
-            console.log('Service Worker: Deleting old cache:', cacheName);
+        cacheNames
+          .filter((cacheName) => {
+            return cacheName !== CACHE_NAME && 
+                   cacheName !== RUNTIME_CACHE && 
+                   cacheName !== DATA_CACHE;
+          })
+          .map((cacheName) => {
+            console.log('[Service Worker] Deleting old cache:', cacheName);
             return caches.delete(cacheName);
-          }
-        })
+          })
       );
     })
+    .then(() => self.clients.claim())
   );
-  self.clients.claim();
+});
+
+// Fetch event - smart caching strategy
+self.addEventListener('fetch', (event) => {
+  const { request } = event;
+  const url = new URL(request.url);
+
+  // API requests - Network first, fallback to cache
+  if (url.origin === 'https://beelee-backend-production.up.railway.app') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          // Cache successful API responses
+          const responseClone = response.clone();
+          caches.open(RUNTIME_CACHE).then((cache) => {
+            cache.put(request, responseClone);
+          });
+          return response;
+        })
+        .catch(() => {
+          // Network failed, try cache
+          return caches.match(request);
+        })
+    );
+    return;
+  }
+
+  // Products data - Cache first, update in background
+  if (url.href.includes('products.xlsx')) {
+    event.respondWith(
+      caches.open(DATA_CACHE).then((cache) => {
+        return cache.match(request).then((cachedResponse) => {
+          // Return cached version immediately
+          const fetchPromise = fetch(request).then((networkResponse) => {
+            // Update cache in background
+            cache.put(request, networkResponse.clone());
+            return networkResponse;
+          });
+
+          // Return cached if available, otherwise wait for network
+          return cachedResponse || fetchPromise;
+        });
+      })
+    );
+    return;
+  }
+
+  // Static assets - Cache first, fallback to network
+  event.respondWith(
+    caches.match(request).then((cachedResponse) => {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+
+      return fetch(request).then((response) => {
+        // Cache successful responses
+        if (response.status === 200) {
+          const responseClone = response.clone();
+          caches.open(RUNTIME_CACHE).then((cache) => {
+            cache.put(request, responseClone);
+          });
+        }
+        return response;
+      });
+    })
+  );
+});
+
+// Handle messages from clients
+self.addEventListener('message', (event) => {
+  if (event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+  
+  if (event.data.type === 'CACHE_PRODUCTS') {
+    // Cache products data
+    caches.open(DATA_CACHE).then((cache) => {
+      cache.put('/api/products', new Response(JSON.stringify(event.data.products)));
+    });
+  }
 });
