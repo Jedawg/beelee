@@ -1,855 +1,933 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="da">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#4F46E5">
-  <meta name="description" content="Compare products across stores with smart pricing">
-  
+  <meta name="theme-color" content="#ffffff">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Beelee">
-  
-  <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="manifest" href="./manifest.json">
-  <link rel="icon" type="image/png" href="./icon-192.png">
-  
+  <link rel="apple-touch-icon" href="./icon-192.png">
   <title>Beelee</title>
-  
+
   <script>
-    (function() {
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js')
+          .then(() => console.log('SW ok'))
+          .catch(() => {});
+      });
+    }
+  </script>
+
+  <script>
+    (function () {
       if (typeof window === 'undefined') return;
-
-      const DB_NAME = 'BeeleeProductsDB';
-      const DB_VERSION = 1;
-      const STORE_NAME = 'products';
-
+      const DB_NAME = 'BeeleeProductsDB', DB_VERSION = 1, STORE = 'products';
       window.ProductDB = {
         db: null,
-
         async init() {
-          return new Promise((resolve, reject) => {
-            const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-            request.onerror = () => reject(request.error);
-            request.onsuccess = () => {
-              this.db = request.result;
-              resolve(this.db);
-            };
-
-            request.onupgradeneeded = (event) => {
-              const db = event.target.result;
-              
-              if (!db.objectStoreNames.contains(STORE_NAME)) {
-                const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-                objectStore.createIndex('title', 'title', { unique: false });
-                objectStore.createIndex('category', 'category', { unique: false });
-                objectStore.createIndex('store', 'store', { unique: false });
-                objectStore.createIndex('price', 'price', { unique: false });
+          if (this.db) return this.db;
+          return new Promise((res, rej) => {
+            const r = indexedDB.open(DB_NAME, DB_VERSION);
+            r.onerror = () => rej(r.error);
+            r.onsuccess = () => { this.db = r.result; res(this.db); };
+            r.onupgradeneeded = (e) => {
+              const db = e.target.result;
+              if (!db.objectStoreNames.contains(STORE)) {
+                const os = db.createObjectStore(STORE, { keyPath: 'id' });
+                os.createIndex('category', 'category', { unique: false });
+                os.createIndex('store', 'store', { unique: false });
               }
             };
           });
         },
-
         async saveProducts(products) {
-          const tx = this.db.transaction(STORE_NAME, 'readwrite');
-          const store = tx.objectStore(STORE_NAME);
-          
-          store.clear();
-          
-          for (const product of products) {
-            store.put(product);
-          }
-          
-          return new Promise((resolve, reject) => {
-            tx.oncomplete = () => {
-              console.log(`✅ Saved ${products.length} products to IndexedDB`);
-              resolve();
-            };
-            tx.onerror = () => reject(tx.error);
-          });
+          const tx = this.db.transaction(STORE, 'readwrite');
+          const os = tx.objectStore(STORE);
+          os.clear();
+          for (const p of products) os.put(p);
+          return new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
         },
-
         async count() {
-          const tx = this.db.transaction(STORE_NAME, 'readonly');
-          const store = tx.objectStore(STORE_NAME);
-          
-          return new Promise((resolve, reject) => {
-            const request = store.count();
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+          const tx = this.db.transaction(STORE, 'readonly');
+          return new Promise((res, rej) => {
+            const r = tx.objectStore(STORE).count();
+            r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
           });
         },
-
-        async search({ searchTerm, category, stores, sortOrder, limit = 100 }) {
-          const tx = this.db.transaction(STORE_NAME, 'readonly');
-          const store = tx.objectStore(STORE_NAME);
-          
-          return new Promise((resolve, reject) => {
-            const request = store.getAll();
-            
-            request.onsuccess = () => {
-              let allProducts = request.result;
-              
-              let results = allProducts.filter(p => {
-                const matchesSearch = !searchTerm || 
-                  p.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                  p.category.toLowerCase().includes(searchTerm.toLowerCase());
-                
-                const matchesCategory = !category || p.category === category;
-                const matchesStore = !stores || stores.includes(p.store);
-                
-                return matchesSearch && matchesCategory && matchesStore;
+        async search({ searchTerm='', category=null, stores=null, sortOrder='asc', limit=100 }) {
+          const tx = this.db.transaction(STORE, 'readonly');
+          return new Promise((res, rej) => {
+            const r = tx.objectStore(STORE).getAll();
+            r.onsuccess = () => {
+              let all = r.result.filter(p => {
+                const ms  = !searchTerm || p.title.toLowerCase().includes(searchTerm.toLowerCase());
+                const mc  = !category   || p.category === category;
+                const mst = !stores     || !stores.length || stores.includes(p.store);
+                return ms && mc && mst;
               });
-              
-              if (sortOrder === 'asc') {
-                results.sort((a, b) => a.price - b.price);
-              } else if (sortOrder === 'desc') {
-                results.sort((a, b) => b.price - a.price);
-              }
-              
-              const seen = new Set();
-              const deduplicated = [];
-              
-              for (const product of results) {
-                if (!seen.has(product.id)) {
-                  seen.add(product.id);
-                  deduplicated.push(product);
-                  if (deduplicated.length >= limit) break;
-                }
-              }
-              
-              resolve(deduplicated);
+              all.sort((a,b) => sortOrder==='asc' ? a.price-b.price : b.price-a.price);
+              res(all.slice(0, limit));
             };
-            
-            request.onerror = () => reject(request.error);
+            r.onerror = () => rej(r.error);
           });
         },
-
+        async getByIds(ids) {
+          const tx = this.db.transaction(STORE, 'readonly');
+          const os = tx.objectStore(STORE);
+          return Promise.all(ids.map(id => new Promise(res => {
+            const r = os.get(id); r.onsuccess = () => res(r.result||null); r.onerror = () => res(null);
+          })));
+        },
         async getCategories() {
-          const tx = this.db.transaction(STORE_NAME, 'readonly');
-          const index = tx.objectStore(STORE_NAME).index('category');
-          const categories = new Set();
-          
-          return new Promise((resolve, reject) => {
-            const request = index.openCursor();
-            
-            request.onsuccess = (event) => {
-              const cursor = event.target.result;
-              if (cursor) {
-                categories.add(cursor.value.category);
-                cursor.continue();
-              } else {
-                resolve(Array.from(categories).sort());
-              }
-            };
-            
-            request.onerror = () => reject(request.error);
+          const tx = this.db.transaction(STORE, 'readonly');
+          const cats = new Set();
+          return new Promise((res, rej) => {
+            const r = tx.objectStore(STORE).index('category').openCursor();
+            r.onsuccess = e => { const c=e.target.result; if(c){cats.add(c.value.category);c.continue();}else res([...cats].filter(Boolean).sort()); };
+            r.onerror = () => rej(r.error);
           });
         },
-
         async getStores() {
-          const tx = this.db.transaction(STORE_NAME, 'readonly');
-          const index = tx.objectStore(STORE_NAME).index('store');
+          const tx = this.db.transaction(STORE, 'readonly');
           const stores = new Set();
-          
-          return new Promise((resolve, reject) => {
-            const request = index.openCursor();
-            
-            request.onsuccess = (event) => {
-              const cursor = event.target.result;
-              if (cursor) {
-                stores.add(cursor.value.store);
-                cursor.continue();
-              } else {
-                resolve(Array.from(stores).sort());
-              }
-            };
-            
-            request.onerror = () => reject(request.error);
+          return new Promise((res, rej) => {
+            const r = tx.objectStore(STORE).index('store').openCursor();
+            r.onsuccess = e => { const c=e.target.result; if(c){stores.add(c.value.store);c.continue();}else res([...stores].filter(Boolean).sort()); };
+            r.onerror = () => rej(r.error);
           });
         }
       };
     })();
   </script>
-  
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
-  
+
   <style>
+    * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
     body {
-      margin: 0;
-      padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+      background: #F2F2F7;
       -webkit-font-smoothing: antialiased;
     }
     #root { width: 100%; min-height: 100vh; }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+
+    /* Things 3 colour tokens */
+    :root {
+      --bg:        #F2F2F7;
+      --surface:   #FFFFFF;
+      --blue:      #3478F6;
+      --label:     #000000;
+      --label2:    #3C3C43;
+      --label3:    #8E8E93;
+      --label4:    #C7C7CC;
+      --sep:       rgba(60,60,67,0.18);
+      --sep-light: rgba(60,60,67,0.10);
+      --red:       #FF3B30;
+      --orange:    #FF9500;
+      --yellow:    #FFCC00;
+      --green:     #34C759;
+    }
+
+    /* Animations */
+    @keyframes spin    { to { transform: rotate(360deg); } }
+    @keyframes fadeIn  { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes popIn   { 0%{transform:scale(.8);opacity:0} 60%{transform:scale(1.15)} 100%{transform:scale(1);opacity:1} }
+    .fade-in  { animation: fadeIn  .22s ease forwards; }
+    .pop-in   { animation: popIn   .25s cubic-bezier(.34,1.56,.64,1) forwards; }
+    .spin-ani { animation: spin .7s linear infinite; }
+
+    /* Things 3-style scrollbar */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--label4); border-radius: 2px; }
+
+    /* Bottom safe area */
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 16px); }
+
+    /* Smooth press feedback */
+    button { cursor: pointer; border: none; background: none; padding: 0; }
+    button:active { opacity: .65; transition: opacity .08s; }
+
+    /* Things 3 list row separator */
+    .t3-row + .t3-row { border-top: 1px solid var(--sep-light); }
+
+    /* Things 3 grouped list */
+    .t3-section {
+      background: var(--surface);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+    .t3-section-header {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--label3);
+      padding: 0 20px 8px;
+    }
+
+    /* Things 3-style check circle */
+    .t3-circle {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      border: 2px solid var(--label4);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: all .18s cubic-bezier(.34,1.56,.64,1);
+    }
+    .t3-circle.checked {
+      background: var(--blue);
+      border-color: var(--blue);
+    }
+
+    /* Search bar */
+    .t3-search {
+      background: rgba(118,118,128,.12);
+      border-radius: 10px;
+      display: flex; align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+    }
+    .t3-search input {
+      background: none; border: none; outline: none;
+      font-size: 16px; color: var(--label);
+      flex: 1; min-width: 0;
+    }
+    .t3-search input::placeholder { color: var(--label3); }
+
+    /* Store pills */
+    .store-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 13px; font-weight: 600;
+      white-space: nowrap;
+      transition: all .15s;
+      border: 1.5px solid transparent;
+    }
+    .store-pill.active { border-color: var(--blue); }
+
+    /* Tab bar */
+    .t3-tabbar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: rgba(255,255,255,.88);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid var(--sep-light);
+      display: flex;
+      z-index: 100;
+    }
+    .t3-tab {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 10px 0 4px;
+      gap: 3px;
+      font-size: 10px; font-weight: 500;
+      color: var(--label3);
+      transition: color .15s;
+    }
+    .t3-tab.active { color: var(--blue); }
+    .t3-tab svg { width: 24px; height: 24px; }
+
+    /* Badge */
+    .badge {
+      position: absolute; top: 4px; right: 4px;
+      background: var(--red);
+      color: white; font-size: 10px; font-weight: 700;
+      border-radius: 10px;
+      padding: 1px 5px;
+      min-width: 18px; text-align: center;
+    }
+
+    /* Login */
+    .login-bg { background: linear-gradient(160deg, #1C1C1E 0%, #2C2C2E 100%); }
+    .login-field {
+      width: 100%; background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.15);
+      border-radius: 12px; padding: 14px 16px;
+      font-size: 16px; color: white; outline: none;
+    }
+    .login-field::placeholder { color: rgba(255,255,255,.4); }
+
+    /* Quantity stepper */
+    .stepper-btn {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 500; line-height: 1;
     }
   </style>
 </head>
 <body>
   <div id="root">
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-      <div style="background: white; padding: 40px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
-        <div style="width: 50px; height: 50px; border: 5px solid #f3f3f3; border-top: 5px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
-        <h2 style="color: #333; margin: 0 0 10px 0;">Loading Beelee...</h2>
-        <p style="color: #666; margin: 0;">Please wait</p>
+    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#1C1C1E">
+      <div style="text-align:center">
+        <div style="font-size:52px;margin-bottom:12px">🐝</div>
+        <p style="color:rgba(255,255,255,.5);font-size:15px">Indlæser...</p>
       </div>
     </div>
   </div>
-  
-  <script type="text/babel">
-    const { useState, useMemo, useCallback, useEffect, useRef } = React;
-    
-    const API_URL = 'https://beelee-backend.onrender.com';
-    const GITHUB_USERNAME = 'Jedawg';
-    const DATA_URL = `https://raw.githubusercontent.com/${GITHUB_USERNAME}/beelee/main/data/products.xlsx`;
-    
-    // Icons
-    const Upload = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>;
-    const ArrowUpDown = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>;
-    const Search = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>;
-    const X = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>;
-    const ChefHat = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" x2="18" y1="17" y2="17"/></svg>;
-    const Plus = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>;
-    const Trash2 = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>;
-    const ShoppingCart = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>;
-    const Save = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>;
-    const BookOpen = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>;
-    const ShoppingBag = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>;
-    const TrendingDown = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></svg>;
-    const Share2 = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></svg>;
-    const Mail = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>;
-    const MessageCircle = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>;
-    const MessageSquare = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
 
-    // Virtual scroll hook
-    function useVirtualScroll(items, itemHeight = 100, containerHeight = 600) {
-      const [scrollTop, setScrollTop] = useState(0);
-      const containerRef = useRef(null);
+<script type="text/babel">
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
-      const handleScroll = useCallback((e) => {
-        setScrollTop(e.target.scrollTop);
-      }, []);
+const API_URL  = 'https://beelee-backend.onrender.com';
+const DATA_URL = 'https://raw.githubusercontent.com/Jedawg/beelee/main/data/products.xlsx';
 
-      const startIndex = Math.floor(scrollTop / itemHeight);
-      const endIndex = Math.min(items.length - 1, Math.floor((scrollTop + containerHeight) / itemHeight));
-      const bufferSize = 5;
-      const visibleStartIndex = Math.max(0, startIndex - bufferSize);
-      const visibleEndIndex = Math.min(items.length - 1, endIndex + bufferSize);
-      const visibleItems = items.slice(visibleStartIndex, visibleEndIndex + 1);
-      const offsetY = visibleStartIndex * itemHeight;
-      const totalHeight = items.length * itemHeight;
+/* ─────────────────────────────────────────
+   Store colour map (dot + label colour)
+───────────────────────────────────────── */
+const STORE_META = {
+  'Rema1000':               { dot:'#003D8F', bg:'#E8F0FB', tx:'#003D8F', name:'Rema 1000' },
+  'Netto':                  { dot:'#F9C200', bg:'#FEF8D9', tx:'#7A5F00', name:'Netto' },
+  'Lidl':                   { dot:'#EF3340', bg:'#FDECEA', tx:'#B00020', name:'Lidl' },
+  'Føtex':                  { dot:'#0046A0', bg:'#E8EFF9', tx:'#0046A0', name:'Føtex' },
+  'Meny':                   { dot:'#C8102E', bg:'#FCEDEF', tx:'#8B0B1F', name:'Meny' },
+  'Brugsen':                { dot:'#E30613', bg:'#FDECEA', tx:'#9A0007', name:'Brugsen' },
+  'SuperBrugsen & Kvickly': { dot:'#E30613', bg:'#FDECEA', tx:'#9A0007', name:'SuperBrugsen' },
+  'Bilka':                  { dot:'#004FA3', bg:'#E8EFF9', tx:'#003570', name:'Bilka' },
+  'Spar':                   { dot:'#007A4D', bg:'#E5F4EC', tx:'#004D2E', name:'Spar' },
+  'Min Kobmand':            { dot:'#2D5F2D', bg:'#E5F4EC', tx:'#1A3D1A', name:'Min Købmand' },
+  '365':                    { dot:'#4CAF50', bg:'#E8F5E9', tx:'#2E7D32', name:'365 Discount' },
+};
+const sm = s => STORE_META[s] || { dot:'#8E8E93', bg:'#F2F2F7', tx:'#3C3C43', name: s||'Ukendt' };
 
-      return { visibleItems, offsetY, totalHeight, containerRef, handleScroll, visibleStartIndex };
-    }
+/* ─────────────────────────────────────────
+   Virtual scroll
+───────────────────────────────────────── */
+function useVS(items, ih=80, ch=520) {
+  const [st, setSt] = useState(0);
+  const ref = useRef(null);
+  const onScroll = useCallback(e => setSt(e.target.scrollTop), []);
+  const start = Math.max(0, Math.floor(st/ih)-4);
+  const end   = Math.min(items.length-1, Math.ceil((st+ch)/ih)+4);
+  return { visible:items.slice(start,end+1), offsetY:start*ih, totalH:items.length*ih, ref, onScroll };
+}
 
-    // Utils
-    const fileCache = new Map();
+/* ─────────────────────────────────────────
+   useProducts
+───────────────────────────────────────── */
+function useProducts() {
+  const [dbReady, setDbReady]   = useState(false);
+  const [total, setTotal]       = useState(0);
+  const [loading, setLoading]   = useState(true);
+  const [updated, setUpdated]   = useState(null);
+  const [products, setProducts] = useState([]);
+  const [err, setErr]           = useState(false);
 
-    async function parseExcel(file) {
-      if (fileCache.has(file.name)) return fileCache.get(file.name);
-      const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(buffer);
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws);
-      const products = rows.map(row => ({
-        id: crypto.randomUUID(),
-        title: row.title || 'Unknown',
-        price: Number(row.price) || 0,
-        category: row.category || 'Uncategorized',
-        store: row.store || 'Unknown',
-        imageBase64: row.image_base64 || null,
-        offerExpiryDate: row.offer_expiry_date || null,
-        remainingDays: row.remaining_days !== undefined ? Number(row.remaining_days) : null
+  useEffect(() => { init(); }, []);
+
+  async function init() {
+    try {
+      await window.ProductDB.init();
+      const n = await window.ProductDB.count();
+      if (n > 0) {
+        setTotal(n); setDbReady(true); setLoading(false);
+        setUpdated(new Date().toLocaleString('da-DK'));
+        bg();
+      } else { await dl(); }
+    } catch(e) { console.error(e); setErr(true); setLoading(false); }
+  }
+
+  async function dl() {
+    try {
+      const res = await fetch(DATA_URL+'?t='+Date.now());
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const buf  = await res.arrayBuffer();
+      const wb   = XLSX.read(buf);
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      const isIOS = /iPhone|iPod/.test(navigator.userAgent);
+      const ps = rows.slice(0, isIOS ? 1000 : rows.length).map(r => ({
+        id:           crypto.randomUUID(),
+        title:        r.title || 'Ukendt',
+        price:        Number(r.price) || 0,
+        category:     r.category || 'Andet',
+        store:        r.store || 'Ukendt',
+        imageBase64:  r.image_base64 || null,
+        remainingDays: r.remaining_days != null ? Number(r.remaining_days) : null,
       }));
-      fileCache.set(file.name, products);
-      return products;
-    }
+      await window.ProductDB.saveProducts(ps);
+      setTotal(ps.length); setDbReady(true); setLoading(false);
+      setUpdated(new Date().toLocaleString('da-DK'));
+    } catch(e) { console.error(e); setErr(true); setLoading(false); }
+  }
 
-    function getStoreColor(store) {
-      const colors = {
-        'Rema1000': { bg: 'bg-blue-100', text: 'text-blue-700', name: 'REMA 1000' },
-        'Netto': { bg: 'bg-yellow-100', text: 'text-yellow-700', name: 'NETTO' },
-        'Min Kobmand': { bg: 'bg-green-800', text: 'text-white', name: 'MIN KØBMAND' },
-        'Spar': { bg: 'bg-green-600', text: 'text-white', name: 'SPAR' },
-        'Føtex': { bg: 'bg-blue-600', text: 'text-white', name: 'FØTEX' },
-        'SuperBrugsen & Kvickly': { bg: 'bg-red-600', text: 'text-white', name: 'SUPERBRUGSEN & KVICKLY' },
-        '365': { bg: 'bg-green-200', text: 'text-green-900', name: '365' },
-        'Meny': { bg: 'bg-red-700', text: 'text-white', name: 'MENY' },
-        'Brugsen': { bg: 'bg-red-600', text: 'text-white', name: 'BRUGSEN' },
-        'Lidl': { bg: 'bg-yellow-400', text: 'text-blue-900', name: 'LIDL' }
-      };
-      return colors[store] || { bg: 'bg-gray-100', text: 'text-gray-700', name: store.toUpperCase() };
-    }
+  async function bg() { try { await dl(); } catch {} }
 
-    function getCheapestByCategory(productsById) {
-      const byCategory = {};
-      Object.values(productsById).forEach(product => {
-        const cat = product.category;
-        if (!byCategory[cat] || product.price < byCategory[cat].price) {
-          byCategory[cat] = product;
-        }
-      });
-      return Object.values(byCategory).sort((a, b) => a.category.localeCompare(b.category));
-    }
+  const search = useCallback(async (term, opts={}) => {
+    if(!dbReady) return;
+    const r = await window.ProductDB.search({
+      searchTerm: term,
+      category:   opts.category === 'all' ? null : opts.category,
+      stores:     opts.stores?.length ? opts.stores : null,
+      sortOrder:  opts.sortOrder || 'asc',
+      limit: 100,
+    });
+    setProducts(r);
+  }, [dbReady]);
 
-    function generateBasketText(basket, productsById) {
-      const storeGroups = {};
-      let totalPrice = 0;
+  const getCats   = useCallback(async () => dbReady ? window.ProductDB.getCategories() : [], [dbReady]);
+  const getStores = useCallback(async () => dbReady ? window.ProductDB.getStores()     : [], [dbReady]);
+  const getByIds  = useCallback(async ids => dbReady ? window.ProductDB.getByIds(ids)  : [], [dbReady]);
 
-      basket.forEach(item => {
-        const product = productsById[item.productId];
-        if (!product) return;
-        
-        if (!storeGroups[product.store]) {
-          storeGroups[product.store] = { items: [], total: 0 };
-        }
-        
-        const itemTotal = product.price * item.quantity;
-        storeGroups[product.store].items.push({
-          title: product.title,
-          quantity: item.quantity,
-          price: product.price,
-          total: itemTotal
-        });
-        storeGroups[product.store].total += itemTotal;
-        totalPrice += itemTotal;
-      });
+  return { dbReady, total, loading, updated, products, err, search, getCats, getStores, getByIds, refresh: dl };
+}
 
-      let text = '🛒 SHOPPING BASKET\n═══════════════════════════════\n\n';
+/* ─────────────────────────────────────────
+   useBasket
+───────────────────────────────────────── */
+function useBasket() {
+  const [basket, setBasket] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('beelee_basket')||'[]'); } catch { return []; }
+  });
+  useEffect(() => { localStorage.setItem('beelee_basket', JSON.stringify(basket)); }, [basket]);
 
-      Object.entries(storeGroups).forEach(([store, data]) => {
-        const storeInfo = getStoreColor(store);
-        text += `📍 ${storeInfo.name}\n───────────────────────────────\n`;
-        data.items.forEach(item => {
-          text += `• ${item.title}\n  ${item.quantity}x ${item.price.toFixed(2)} kr = ${item.total.toFixed(2)} kr\n`;
-        });
-        text += `\nStore Total: ${data.total.toFixed(2)} kr\n\n`;
-      });
+  const add    = useCallback(id => setBasket(prev => {
+    const x = prev.find(i=>i.id===id);
+    return x ? prev.map(i=>i.id===id?{...i,qty:i.qty+1}:i) : [...prev,{id,qty:1}];
+  }), []);
+  const remove = useCallback(id => setBasket(prev=>prev.filter(i=>i.id!==id)), []);
+  const setQty = useCallback((id,q) => q<=0 ? remove(id) : setBasket(prev=>prev.map(i=>i.id===id?{...i,qty:q}:i)), [remove]);
+  const clear  = useCallback(() => setBasket([]), []);
+  const inBasket = useCallback(id => basket.some(i=>i.id===id), [basket]);
+  const getQty   = useCallback(id => basket.find(i=>i.id===id)?.qty || 0, [basket]);
 
-      text += '═══════════════════════════════\n';
-      text += `GRAND TOTAL: ${totalPrice.toFixed(2)} kr\n`;
-      text += `Total Items: ${basket.reduce((sum, item) => sum + item.quantity, 0)}\n`;
-      text += '═══════════════════════════════\n';
+  return { basket, add, remove, setQty, clear, inBasket, getQty };
+}
 
-      return text;
-    }
+/* ─────────────────────────────────────────
+   LOGIN
+───────────────────────────────────────── */
+function LoginScreen({ onLogin }) {
+  const [u, setU]     = useState(()=>localStorage.getItem('beelee_rem')||'');
+  const [p, setP]     = useState('');
+  const [rem, setRem] = useState(!!localStorage.getItem('beelee_rem'));
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
 
-    // Products hook - MOBILE SAFE
-    function useProducts() {
-      const [productsById, setProductsById] = useState({});
-      const [productIds, setProductIds] = useState([]);
-      const [dbReady, setDbReady] = useState(false);
-      const [autoLoading, setAutoLoading] = useState(false);
-      const [lastUpdated, setLastUpdated] = useState(null);
-      const [autoLoadError, setAutoLoadError] = useState(false);
-      const [totalProductCount, setTotalProductCount] = useState(0);
+  const login = async () => {
+    if(busy||!u.trim()||!p.trim()){setErr('Udfyld alle felter');return;}
+    setBusy(true); setErr('');
+    try {
+      const res  = await fetch(`${API_URL}/api/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.trim(),password:p.trim()})});
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error||'Login fejlede');
+      localStorage.setItem('beelee_token', data.token);
+      localStorage.setItem('beelee_user', JSON.stringify(data.user));
+      if(rem) localStorage.setItem('beelee_rem', u.trim());
+      else    localStorage.removeItem('beelee_rem');
+      onLogin(data.user);
+    } catch(e){setErr(e.message); setBusy(false);}
+  };
 
-      useEffect(() => {
-        initializeDatabase();
-      }, []);
+  return (
+    <div className="login-bg" style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
+      <div style={{width:'100%',maxWidth:360}}>
 
-      const initializeDatabase = async () => {
-        setAutoLoading(true);
-        
-        try {
-          if (!window.ProductDB) throw new Error('IndexedDB not available');
-          
-          await window.ProductDB.init();
-          const count = await window.ProductDB.count();
-          
-          if (count > 0) {
-            console.log(`📦 Found ${count} products in IndexedDB`);
-            setTotalProductCount(count);
-            setDbReady(true);
-            setLastUpdated(new Date().toLocaleString('da-DK'));
-            setAutoLoading(false);
-            updateDatabaseInBackground();
-            return;
+        {/* Logo */}
+        <div style={{textAlign:'center',marginBottom:40}}>
+          <div style={{fontSize:64,marginBottom:8}}>🐝</div>
+          <h1 style={{color:'white',fontSize:32,fontWeight:700,margin:0,letterSpacing:'-.5px'}}>Beelee</h1>
+          <p style={{color:'rgba(255,255,255,.45)',fontSize:15,margin:'6px 0 0'}}>Smart indkøb i Danmark</p>
+        </div>
+
+        {/* Fields */}
+        <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:16}}>
+          <input className="login-field" type="text" placeholder="Brugernavn" value={u}
+            onChange={e=>setU(e.target.value)} onKeyDown={e=>e.key==='Enter'&&login()}
+            autoCapitalize="none" autoCorrect="off" />
+          <input className="login-field" type="password" placeholder="Adgangskode" value={p}
+            onChange={e=>setP(e.target.value)} onKeyDown={e=>e.key==='Enter'&&login()} />
+        </div>
+
+        {/* Remember me */}
+        <label style={{display:'flex',alignItems:'center',gap:8,color:'rgba(255,255,255,.6)',fontSize:14,marginBottom:20,cursor:'pointer'}}>
+          <input type="checkbox" checked={rem} onChange={e=>setRem(e.target.checked)} style={{width:16,height:16,accentColor:'#3478F6'}} />
+          Husk mig
+        </label>
+
+        {err && <p style={{color:'#FF453A',fontSize:14,marginBottom:12,textAlign:'center'}}>{err}</p>}
+
+        {/* Login button */}
+        <button type="button" onClick={login} disabled={busy} style={{
+          width:'100%',padding:'16px',borderRadius:14,
+          background:'#3478F6',color:'white',
+          fontSize:17,fontWeight:600,letterSpacing:'-.2px',
+          opacity:busy?.6:1,transition:'opacity .15s'
+        }}>
+          {busy
+            ? <span style={{display:'inline-block',width:18,height:18,border:'2px solid rgba(255,255,255,.4)',borderTopColor:'white',borderRadius:'50%'}} className="spin-ani"></span>
+            : 'Log ind'
           }
-          
-          await downloadAndCacheProducts();
-        } catch (error) {
-          console.error('Failed to initialize database:', error);
-          setAutoLoadError(true);
-          setAutoLoading(false);
-        }
-      };
+        </button>
+      </div>
+    </div>
+  );
+}
 
-      const downloadAndCacheProducts = async () => {
-        try {
-          console.log('📥 Downloading products...');
-          
-          const response = await fetch(DATA_URL + '?t=' + Date.now());
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          
-          const buffer = await response.arrayBuffer();
-          const wb = XLSX.read(buffer);
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json(ws);
-          
-          const products = rows.map(row => ({
-            id: crypto.randomUUID(),
-            title: row.title || 'Unknown',
-            price: Number(row.price) || 0,
-            category: row.category || 'Uncategorized',
-            store: row.store || 'Unknown',
-            imageBase64: row.image_base64 || null,
-            offerExpiryDate: row.offer_expiry_date || null,
-            remainingDays: row.remaining_days !== undefined ? Number(row.remaining_days) : null
-          }));
-          
-          if (window.ProductDB) {
-            await window.ProductDB.saveProducts(products);
+/* ─────────────────────────────────────────
+   PRODUCT ROW  (Things 3 list item style)
+───────────────────────────────────────── */
+function ProductRow({ product, inBasket, onAdd, qty }) {
+  const meta = sm(product.store);
+  const [justAdded, setJustAdded] = useState(false);
+
+  const handleAdd = () => {
+    onAdd(product.id);
+    if (!inBasket) { setJustAdded(true); setTimeout(()=>setJustAdded(false), 600); }
+  };
+
+  return (
+    <div className="t3-row" style={{display:'flex',alignItems:'center',gap:12,padding:'11px 16px',background:'white',minHeight:72}}>
+
+      {/* Thumbnail */}
+      <div style={{width:44,height:44,borderRadius:10,overflow:'hidden',background:'#F2F2F7',flexShrink:0}}>
+        {product.imageBase64
+          ? <img src={product.imageBase64} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} loading="lazy"/>
+          : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>🛒</div>
+        }
+      </div>
+
+      {/* Title + meta */}
+      <div style={{flex:1,minWidth:0}}>
+        <p style={{margin:0,fontSize:16,fontWeight:500,color:'var(--label)',lineHeight:1.3,
+          overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>
+          {product.title}
+        </p>
+        <div style={{display:'flex',alignItems:'center',gap:6,marginTop:3,flexWrap:'wrap'}}>
+          {/* Store dot + name */}
+          <span style={{display:'flex',alignItems:'center',gap:4}}>
+            <span style={{width:7,height:7,borderRadius:'50%',background:meta.dot,flexShrink:0}}></span>
+            <span style={{fontSize:13,color:'var(--label3)',fontWeight:500}}>{meta.name}</span>
+          </span>
+          {/* Category */}
+          <span style={{color:'var(--label4)',fontSize:13}}>·</span>
+          <span style={{fontSize:13,color:'var(--label3)'}}>{product.category}</span>
+          {/* Days left badge */}
+          {product.remainingDays != null && (
+            <span style={{
+              background:'#FFF3E0',color:'#E65100',
+              fontSize:11,fontWeight:700,borderRadius:6,
+              padding:'1px 6px',letterSpacing:'.02em'
+            }}>
+              🔥 {product.remainingDays}d
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Price + add circle */}
+      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6,flexShrink:0}}>
+        <span style={{fontSize:16,fontWeight:700,color:'var(--label)',letterSpacing:'-.3px'}}>
+          {product.price.toFixed(2)}<span style={{fontSize:11,fontWeight:500,color:'var(--label3)'}}>kr</span>
+        </span>
+
+        {/* Things 3-style completion circle */}
+        <button type="button" onClick={handleAdd}
+          style={{
+            width:28,height:28,borderRadius:'50%',
+            border: inBasket ? 'none' : '2px solid #C7C7CC',
+            background: inBasket ? '#3478F6' : 'transparent',
+            display:'flex',alignItems:'center',justifyContent:'center',
+            transition:'all .2s cubic-bezier(.34,1.56,.64,1)',
+            transform: justAdded ? 'scale(1.2)' : 'scale(1)',
+          }}>
+          {inBasket
+            ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C7C7CC" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
           }
-          
-          setTotalProductCount(products.length);
-          setDbReady(true);
-          setLastUpdated(new Date().toLocaleString('da-DK'));
-          setAutoLoading(false);
-        } catch (err) {
-          console.error('Download failed:', err);
-          setAutoLoading(false);
-          setAutoLoadError(true);
-          throw err;
-        }
-      };
+        </button>
 
-      const updateDatabaseInBackground = async () => {
-        try {
-          console.log('🔄 Background update...');
-          await downloadAndCacheProducts();
-        } catch (err) {
-          console.log('Background update failed');
-        }
-      };
+        {/* Qty badge if > 1 */}
+        {qty > 1 && (
+          <span style={{fontSize:10,fontWeight:700,color:'#3478F6',marginTop:-4}}>×{qty}</span>
+        )}
+      </div>
+    </div>
+  );
+}
 
-      const refreshFromGitHub = async () => {
-        setAutoLoading(true);
-        await downloadAndCacheProducts();
-      };
+/* ─────────────────────────────────────────
+   PRODUCTS TAB
+───────────────────────────────────────── */
+function ProductsTab({ products, dbReady, total, loading, search, getCats, getStores, basket, onAdd, inBasket, getQty }) {
+  const [term, setTerm]       = useState('');
+  const [selCat, setSelCat]   = useState('all');
+  const [selStores, setSel]   = useState([]);
+  const [sort, setSort]       = useState('asc');
+  const [cats, setCats]       = useState([]);
+  const [allStores, setAll]   = useState([]);
+  const [showFilters, setShowFilters] = useState(false);
+  const inputRef = useRef(null);
 
-      const searchProducts = useCallback(async (searchTerm, filters = {}) => {
-        if (!dbReady) return;
+  useEffect(() => {
+    if (!dbReady) return;
+    getCats().then(setCats);
+    getStores().then(setAll);
+    search('', { category:'all', stores:[], sortOrder:'asc' });
+  }, [dbReady]);
 
-        try {
-          const { category, stores, sortOrder } = filters;
-          
-          let results = await window.ProductDB.search({
-            searchTerm,
-            category: category === 'all' ? null : category,
-            stores: stores.length === 0 ? null : stores,
-            sortOrder,
-            limit: 100
-          });
+  useEffect(() => {
+    if (!dbReady) return;
+    const t = setTimeout(() => search(term, { category:selCat, stores:selStores, sortOrder:sort }), 220);
+    return () => clearTimeout(t);
+  }, [term, selCat, selStores, sort, dbReady]);
 
-          console.log(`🔍 Found ${results.length} products`);
+  const toggleStore = s => setSel(prev => prev.includes(s)?prev.filter(x=>x!==s):[...prev,s]);
 
-          const byId = {};
-          const ids = [];
-          results.forEach(p => { byId[p.id] = p; ids.push(p.id); });
-          
-          setProductsById(byId);
-          setProductIds(ids);
-        } catch (err) {
-          console.error('Search failed:', err);
-        }
-      }, [dbReady]);
+  const { visible, offsetY, totalH, ref, onScroll } = useVS(products, 80, 500);
 
-      const getCategories = useCallback(async () => {
-        if (!dbReady) return ['all'];
-        try {
-          const categories = await window.ProductDB.getCategories();
-          return ['all', ...categories];
-        } catch {
-          return ['all'];
-        }
-      }, [dbReady]);
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:0}}>
 
-      const getStores = useCallback(async () => {
-        if (!dbReady) return ['all'];
-        try {
-          const stores = await window.ProductDB.getStores();
-          return ['all', ...stores];
-        } catch {
-          return ['all'];
-        }
-      }, [dbReady]);
+      {/* Search bar */}
+      <div style={{padding:'12px 16px 8px'}}>
+        <div className="t3-search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--label3)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input ref={inputRef} type="text" placeholder="Søg produkter..." value={term}
+            onChange={e=>setTerm(e.target.value)} disabled={!dbReady} />
+          {term && (
+            <button type="button" onClick={()=>setTerm('')} style={{color:'var(--label3)',fontSize:16,lineHeight:1}}>×</button>
+          )}
+        </div>
+      </div>
 
-      const addProductsFromFile = useCallback(async (file) => {
-        const newProducts = await parseExcel(file);
-        if (window.ProductDB) {
-          await window.ProductDB.saveProducts(newProducts);
-        }
-        setTotalProductCount(prev => prev + newProducts.length);
-        setLastUpdated(new Date().toLocaleString('da-DK'));
-      }, []);
+      {/* Store pills (horizontal scroll) */}
+      {allStores.length > 0 && (
+        <div style={{overflowX:'auto',display:'flex',gap:8,padding:'4px 16px 12px',scrollbarWidth:'none'}}>
+          <style>{`.pills-scroll::-webkit-scrollbar{display:none}`}</style>
+          <div className="pills-scroll" style={{display:'flex',gap:7,paddingBottom:2}}>
+            {allStores.map(s => {
+              const m = sm(s);
+              const active = selStores.includes(s);
+              return (
+                <button type="button" key={s} onClick={()=>toggleStore(s)}
+                  className="store-pill"
+                  style={{
+                    background: active ? m.bg : 'var(--surface)',
+                    color: active ? m.tx : 'var(--label3)',
+                    boxShadow: active ? 'none' : '0 1px 3px rgba(0,0,0,.08)',
+                    borderColor: active ? m.dot : 'transparent',
+                  }}>
+                  <span style={{width:6,height:6,borderRadius:'50%',background:m.dot,flexShrink:0}}></span>
+                  {m.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-      return { 
-        productsById, productIds, dbReady, totalProductCount,
-        searchProducts, getCategories, getStores, addProductsFromFile, 
-        autoLoading, lastUpdated, autoLoadError, refreshFromGitHub 
-      };
-    }
+      {/* Sort + category filter row */}
+      <div style={{display:'flex',gap:8,padding:'0 16px 12px',alignItems:'center'}}>
+        <div style={{flex:1,position:'relative'}}>
+          <select value={selCat} onChange={e=>setSelCat(e.target.value)}
+            style={{width:'100%',padding:'7px 28px 7px 12px',borderRadius:9,border:'none',background:'rgba(118,118,128,.12)',fontSize:14,color:'var(--label)',appearance:'none',outline:'none'}}>
+            <option value="all">Alle kategorier</option>
+            {cats.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <span style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none',color:'var(--label3)',fontSize:10}}>▼</span>
+        </div>
+        <button type="button" onClick={()=>setSort(o=>o==='asc'?'desc':'asc')}
+          style={{padding:'7px 12px',borderRadius:9,background:'rgba(118,118,128,.12)',fontSize:14,color:'var(--label)',fontWeight:500,whiteSpace:'nowrap'}}>
+          {sort==='asc'?'↑ Billigst':'↓ Dyreste'}
+        </button>
+        {selStores.length > 0 && (
+          <button type="button" onClick={()=>setSel([])}
+            style={{padding:'7px 10px',borderRadius:9,background:'#FEE2E2',color:'#DC2626',fontSize:13,fontWeight:600}}>
+            Ryd
+          </button>
+        )}
+      </div>
 
-    // Recipes & Basket hooks (simplified for space - your original versions work)
-    function useRecipes(productsById) {
-      const [recipes, setRecipes] = useState([]);
-      const [currentRecipe, setCurrentRecipe] = useState({ id: null, name: '', ingredients: [] });
-      
-      return {
-        recipes,
-        currentRecipe,
-        saveRecipe: () => {},
-        loadRecipe: () => {},
-        deleteRecipe: () => {},
-        updateRecipeName: (name) => setCurrentRecipe(prev => ({ ...prev, name })),
-        addIngredient: () => {},
-        removeIngredient: () => {},
-        updateIngredientQuantity: () => {},
-        createNewRecipe: () => setCurrentRecipe({ id: null, name: '', ingredients: [] })
-      };
-    }
+      {/* Status line */}
+      {loading ? (
+        <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 16px 12px',color:'var(--label3)',fontSize:13}}>
+          <span style={{display:'inline-block',width:14,height:14,border:'2px solid #E5E5EA',borderTopColor:'#3478F6',borderRadius:'50%'}} className="spin-ani"></span>
+          Indlæser produkter...
+        </div>
+      ) : dbReady && products.length > 0 && (
+        <p style={{fontSize:13,color:'var(--label3)',padding:'0 16px 10px',margin:0}}>
+          {products.length} resultater · {total.toLocaleString()} i alt
+        </p>
+      )}
 
-    function useBasket() {
-      const [basket, setBasket] = useState([]);
-      
-      return {
-        basket,
-        addToBasket: (id) => setBasket(prev => [...prev, { productId: id, quantity: 1 }]),
-        removeFromBasket: (id) => setBasket(prev => prev.filter(i => i.productId !== id)),
-        updateBasketQuantity: () => {},
-        clearBasket: () => setBasket([]),
-        addRecipeToBasket: () => {}
-      };
-    }
+      {/* Product list */}
+      {products.length > 0 ? (
+        <div className="t3-section" style={{margin:'0 16px 100px'}}>
+          <div ref={ref} onScroll={onScroll} style={{height:500,overflowY:'auto',position:'relative'}}>
+            <div style={{height:totalH,position:'relative'}}>
+              <div style={{transform:`translateY(${offsetY}px)`,position:'absolute',width:'100%'}}>
+                {visible.map(p => (
+                  <ProductRow key={p.id} product={p}
+                    inBasket={inBasket(p.id)} qty={getQty(p.id)} onAdd={onAdd} />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : dbReady && !loading && (
+        <div style={{textAlign:'center',padding:'60px 24px',color:'var(--label3)'}}>
+          <p style={{fontSize:40,margin:'0 0 12px'}}>🔍</p>
+          <p style={{fontSize:17,fontWeight:600,color:'var(--label2)',margin:'0 0 6px'}}>Ingen resultater</p>
+          <p style={{fontSize:15,margin:0}}>Prøv et andet søgeord</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
-    // Components
-    function StoreBadge({ store }) {
-      const storeInfo = getStoreColor(store);
-      return <span className={`text-xs ${storeInfo.bg} ${storeInfo.text} px-2 py-0.5 rounded font-semibold`}>{storeInfo.name}</span>;
-    }
+/* ─────────────────────────────────────────
+   BASKET TAB
+───────────────────────────────────────── */
+function BasketTab({ basket, getByIds, setQty, remove, clear }) {
+  const [pMap, setPMap] = useState({});
 
-    function VirtualProductList({ products, onProductClick, onAddToBasket }) {
-      const { visibleItems, offsetY, totalHeight, containerRef, handleScroll, visibleStartIndex } = useVirtualScroll(products, 100, 600);
+  useEffect(() => {
+    if (!basket.length) { setPMap({}); return; }
+    getByIds(basket.map(i=>i.id)).then(items => {
+      const m={};items.forEach(p=>{if(p)m[p.id]=p;});setPMap(m);
+    });
+  }, [basket]);
 
-      return (
-        <div ref={containerRef} onScroll={handleScroll} style={{ height: '600px', overflow: 'auto', position: 'relative' }}>
-          <div style={{ height: `${totalHeight}px`, position: 'relative' }}>
-            <div style={{ transform: `translateY(${offsetY}px)`, position: 'absolute', width: '100%' }}>
-              {visibleItems.map((product, idx) => (
-                <div key={product.id} className="px-3" style={{ height: '100px' }}>
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer border-b" onClick={() => onProductClick(product)}>
-                    <div className="w-16 h-16 flex-shrink-0">
-                      {product.imageBase64 ? (
-                        <img src={product.imageBase64} alt={product.title} className="w-full h-full object-cover rounded-lg" loading="lazy" />
-                      ) : (
-                        <div className="w-full h-full bg-gray-200 rounded-lg"></div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-sm truncate">{product.title}</h3>
-                      <div className="flex items-center gap-2 mt-1">
-                        <StoreBadge store={product.store} />
-                        <span className="text-xs text-gray-500">{product.category}</span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-indigo-600">{product.price.toFixed(2)} kr</p>
-                      <button onClick={(e) => { e.stopPropagation(); onAddToBasket(product.id); }} className="mt-2 px-3 py-1 bg-green-600 text-white rounded-lg text-xs">
-                        + Basket
-                      </button>
-                    </div>
+  const total    = basket.reduce((s,i)=>s+(pMap[i.id]?.price||0)*i.qty, 0);
+  const itemsQty = basket.reduce((s,i)=>s+i.qty, 0);
+
+  const groups = useMemo(() => {
+    const g={};
+    basket.forEach(item => {
+      const p = pMap[item.id]; if(!p) return;
+      if(!g[p.store]) g[p.store]=[];
+      g[p.store].push({...item, product:p});
+    });
+    return g;
+  }, [basket, pMap]);
+
+  const share = () => {
+    let text='🐝 Beelee kurv\n\n';
+    Object.entries(groups).forEach(([store,items])=>{
+      text+=`📍 ${sm(store).name}\n`;
+      items.forEach(({product,qty})=>{ text+=`• ${product.title} ×${qty}  ${(product.price*qty).toFixed(2)} kr\n`; });
+      text+=`Subtotal: ${items.reduce((s,{product,qty})=>s+product.price*qty,0).toFixed(2)} kr\n\n`;
+    });
+    text+=`TOTAL: ${total.toFixed(2)} kr`;
+    if(navigator.share) navigator.share({title:'Beelee kurv',text});
+    else navigator.clipboard?.writeText(text).then(()=>alert('Kopieret!'));
+  };
+
+  if (!basket.length) return (
+    <div style={{textAlign:'center',padding:'80px 24px',color:'var(--label3)'}}>
+      <div style={{fontSize:52,marginBottom:16}}>🛒</div>
+      <p style={{fontSize:20,fontWeight:600,color:'var(--label2)',margin:'0 0 8px'}}>Kurven er tom</p>
+      <p style={{fontSize:15,margin:0}}>Tilføj produkter fra søgning</p>
+    </div>
+  );
+
+  return (
+    <div style={{paddingBottom:120}}>
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 20px 16px'}}>
+        <div>
+          <p style={{margin:0,fontSize:13,color:'var(--label3)'}}>{itemsQty} varer</p>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button type="button" onClick={share}
+            style={{padding:'7px 14px',borderRadius:20,background:'#E8F0FB',color:'#3478F6',fontSize:14,fontWeight:600}}>
+            Del 📤
+          </button>
+          <button type="button" onClick={clear}
+            style={{padding:'7px 14px',borderRadius:20,background:'#FEE2E2',color:'#DC2626',fontSize:14,fontWeight:600}}>
+            Ryd
+          </button>
+        </div>
+      </div>
+
+      {/* Store groups */}
+      {Object.entries(groups).map(([store,items]) => {
+        const meta = sm(store);
+        const sub  = items.reduce((s,{product,qty})=>s+product.price*qty,0);
+        return (
+          <div key={store} style={{margin:'0 16px 20px'}}>
+            {/* Section header */}
+            <div className="t3-section-header" style={{display:'flex',alignItems:'center',gap:6,paddingLeft:4}}>
+              <span style={{width:6,height:6,borderRadius:'50%',background:meta.dot}}></span>
+              {meta.name.toUpperCase()}
+            </div>
+
+            {/* Items */}
+            <div className="t3-section">
+              {items.map(({id, product, qty}) => (
+                <div key={id} className="t3-row"
+                  style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',background:'white'}}>
+                  {/* Image */}
+                  <div style={{width:40,height:40,borderRadius:8,overflow:'hidden',background:'#F2F2F7',flexShrink:0}}>
+                    {product.imageBase64
+                      ? <img src={product.imageBase64} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                      : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center'}}>🛒</div>}
                   </div>
+                  {/* Title */}
+                  <div style={{flex:1,minWidth:0}}>
+                    <p style={{margin:0,fontSize:15,fontWeight:500,color:'var(--label)',
+                      overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{product.title}</p>
+                    <p style={{margin:'2px 0 0',fontSize:13,color:'var(--label3)'}}>{product.price.toFixed(2)} kr/stk</p>
+                  </div>
+                  {/* Stepper */}
+                  <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                    <button type="button" onClick={()=>setQty(id,qty-1)}
+                      className="stepper-btn" style={{background:'#F2F2F7',color:'var(--label2)'}}>−</button>
+                    <span style={{fontSize:15,fontWeight:600,width:20,textAlign:'center'}}>{qty}</span>
+                    <button type="button" onClick={()=>setQty(id,qty+1)}
+                      className="stepper-btn" style={{background:'#EEF3FE',color:'#3478F6'}}>+</button>
+                    <button type="button" onClick={()=>remove(id)} style={{marginLeft:4,color:'#C7C7CC'}}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                  {/* Line total */}
+                  <p style={{margin:0,fontSize:15,fontWeight:700,color:'var(--label)',minWidth:56,textAlign:'right'}}>
+                    {(product.price*qty).toFixed(2)}<span style={{fontSize:11,color:'var(--label3)',fontWeight:400}}>kr</span>
+                  </p>
                 </div>
               ))}
+
+              {/* Subtotal row */}
+              <div className="t3-row" style={{display:'flex',justifyContent:'space-between',padding:'10px 16px',background:'#F9F9FB'}}>
+                <span style={{fontSize:14,color:'var(--label3)',fontWeight:500}}>Subtotal</span>
+                <span style={{fontSize:14,fontWeight:700,color:'var(--label)'}}>{sub.toFixed(2)} kr</span>
+              </div>
             </div>
           </div>
+        );
+      })}
+
+      {/* Total footer */}
+      <div style={{
+        position:'fixed',bottom:0,left:0,right:0,
+        background:'rgba(255,255,255,.92)',
+        backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',
+        borderTop:'1px solid var(--sep-light)',
+        padding:'14px 20px',paddingBottom:'calc(14px + env(safe-area-inset-bottom,0px))',
+        zIndex:90
+      }}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',maxWidth:640,margin:'0 auto'}}>
+          <div>
+            <p style={{margin:0,fontSize:13,color:'var(--label3)'}}>Total</p>
+            <p style={{margin:0,fontSize:26,fontWeight:700,color:'var(--label)',letterSpacing:'-.5px'}}>
+              {total.toFixed(2)} <span style={{fontSize:16,fontWeight:500,color:'var(--label3)'}}>kr</span>
+            </p>
+          </div>
+          <button type="button" onClick={share}
+            style={{padding:'14px 24px',borderRadius:14,background:'#3478F6',color:'white',fontSize:16,fontWeight:600,letterSpacing:'-.2px'}}>
+            Del kurv 📤
+          </button>
         </div>
-      );
-    }
+      </div>
+    </div>
+  );
+}
 
-    function ProductsTab({ productsById, productIds, dbReady, totalProductCount, searchProducts, getCategories, getStores, onAddToBasket }) {
-      const [search, setSearch] = useState('');
-      const [category, setCategory] = useState('all');
-      const [selectedStores, setSelectedStores] = useState([]);
-      const [sortOrder, setSortOrder] = useState('asc');
-      const [hasSearched, setHasSearched] = useState(false);
-      const [categories, setCategories] = useState(['all']);
-      const [stores, setStores] = useState(['all']);
-      const [selectedProduct, setSelectedProduct] = useState(null);
+/* ─────────────────────────────────────────
+   APP
+───────────────────────────────────────── */
+function App() {
+  const [tab, setTab]   = useState('products');
+  const [user, setUser] = useState(() => {
+    try { const t=localStorage.getItem('beelee_token'),u=localStorage.getItem('beelee_user'); return t&&u?JSON.parse(u):null; } catch{return null;}
+  });
 
-      useEffect(() => {
-        if (dbReady) {
-          loadFiltersFromDB();
-        }
-      }, [dbReady]);
+  const { dbReady, total, loading, updated, products, err, search, getCats, getStores, getByIds, refresh } = useProducts();
+  const { basket, add, remove, setQty, clear, inBasket, getQty } = useBasket();
 
-      const loadFiltersFromDB = async () => {
-        const cats = await getCategories();
-        const strs = await getStores();
-        setCategories(cats);
-        setStores(strs);
-      };
+  if (!user) return <LoginScreen onLogin={setUser} />;
 
-      useEffect(() => {
-        if (!search && category === 'all' && selectedStores.length === 0 && !hasSearched) return;
+  const logout = () => { ['beelee_token','beelee_user'].forEach(k=>localStorage.removeItem(k)); setUser(null); };
+  const basketCount = basket.reduce((s,i)=>s+i.qty, 0);
 
-        const timer = setTimeout(() => {
-          if (searchProducts) {
-            searchProducts(search, { category, stores: selectedStores, sortOrder });
-            setHasSearched(true);
-          }
-        }, 300);
+  return (
+    <div style={{background:'var(--bg)',minHeight:'100vh'}}>
 
-        return () => clearTimeout(timer);
-      }, [search, category, selectedStores, sortOrder]);
-
-      const products = useMemo(() => {
-        return productIds.map(id => productsById[id]).filter(p => p !== undefined);
-      }, [productIds, productsById]);
-
-      return (
-        <div>
-          {!dbReady && (
-            <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <p className="text-sm text-yellow-800">⏳ Preparing database...</p>
-            </div>
-          )}
-
-          <div className="mb-6 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 border-2 border-indigo-200 rounded-xl">
-            <div className="flex items-center gap-2 mb-3">
-              <Search className="w-5 h-5 text-indigo-600" />
-              <h3 className="font-bold text-gray-800">Search Products</h3>
-            </div>
-            
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Type to search..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-10 pr-10 py-3 border-2 border-indigo-300 rounded-lg text-lg"
-                disabled={!dbReady}
-              />
-              {search && (
-                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                  <X className="w-5 h-5 text-gray-400" />
-                </button>
-              )}
-            </div>
-
-            {!hasSearched && dbReady && (
-              <p className="text-sm text-gray-600 mt-2">
-                💡 {totalProductCount} products ready (max 100 results per search)
-              </p>
+      {/* Large title header */}
+      <div style={{
+        background:'rgba(242,242,247,.88)',
+        backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',
+        borderBottom:'1px solid var(--sep-light)',
+        padding:'52px 20px 12px',
+        position:'sticky',top:0,zIndex:50,
+      }}>
+        <div style={{display:'flex',alignItems:'flex-end',justifyContent:'space-between',maxWidth:640,margin:'0 auto'}}>
+          <div>
+            <p style={{margin:0,fontSize:12,color:'var(--label3)',fontWeight:500,letterSpacing:'.04em',textTransform:'uppercase'}}>
+              {tab === 'products' ? 'Produkter' : 'Kurv'}
+            </p>
+            <h1 style={{margin:'2px 0 0',fontSize:30,fontWeight:700,color:'var(--label)',letterSpacing:'-.5px',lineHeight:1.1}}>
+              {tab === 'products' ? '🐝 Beelee' : `🛒 Kurv`}
+            </h1>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            {!loading && updated && (
+              <button type="button" onClick={refresh}
+                style={{width:32,height:32,borderRadius:'50%',background:'rgba(118,118,128,.12)',display:'flex',alignItems:'center',justifyContent:'center',color:'var(--label3)',fontSize:16}}>
+                ↻
+              </button>
             )}
-          </div>
-
-          {hasSearched && (
-            <>
-              <div className="flex gap-3 mb-6">
-                <select value={category} onChange={(e) => setCategory(e.target.value)} className="flex-1 px-4 py-3 border rounded-lg">
-                  {categories.map(cat => <option key={cat} value={cat}>{cat === 'all' ? 'All Categories' : cat}</option>)}
-                </select>
-                <button onClick={() => setSortOrder(p => p === 'asc' ? 'desc' : 'asc')} className="px-6 py-3 bg-indigo-600 text-white rounded-lg">
-                  <ArrowUpDown className="w-5 h-5 inline" /> {sortOrder === 'asc' ? 'Cheapest' : 'Expensive'}
-                </button>
-              </div>
-
-              <div className="border rounded-lg bg-white">
-                <div className="p-3 bg-gray-50 border-b">
-                  <p className="text-sm font-semibold">{products.length > 0 ? `Showing ${products.length} products` : 'No results'}</p>
-                </div>
-                
-                {products.length > 0 ? (
-                  <VirtualProductList products={products} onProductClick={setSelectedProduct} onAddToBasket={onAddToBasket} />
-                ) : (
-                  <div className="p-8 text-center text-gray-500">
-                    <p>No results for "{search}"</p>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      );
-    }
-
-    function BestOffersTab({ productsById, onAddToBasket }) {
-      const cheapest = useMemo(() => getCheapestByCategory(productsById), [productsById]);
-
-      if (Object.keys(productsById).length === 0) {
-        return <div className="text-center py-12"><p className="text-gray-600">Search for products first</p></div>;
-      }
-
-      return (
-        <div className="space-y-4">
-          {cheapest.map(p => (
-            <div key={p.id} className="bg-green-50 border-2 border-green-200 rounded-lg p-4 flex items-center gap-4">
-              <div className="flex-1">
-                <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded">BEST PRICE</span>
-                <h3 className="font-bold text-lg mt-2">{p.title}</h3>
-                <StoreBadge store={p.store} />
-              </div>
-              <div className="text-right">
-                <p className="text-3xl font-bold text-green-600">{p.price.toFixed(2)} kr</p>
-                <button onClick={() => onAddToBasket(p.id)} className="mt-2 px-4 py-2 bg-green-600 text-white rounded-lg">+ Basket</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      );
-    }
-
-    function LoginScreen({ onLogin }) {
-      const [username, setUsername] = useState('');
-      const [password, setPassword] = useState('');
-      const [error, setError] = useState('');
-
-      const handleLogin = async () => {
-        if (!username || !password) {
-          setError('Enter username and password');
-          return;
-        }
-        
-        try {
-          const response = await fetch(`${API_URL}/api/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-          });
-
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || 'Login failed');
-
-          localStorage.setItem('beelee_token', data.token);
-          localStorage.setItem('beelee_user', JSON.stringify(data.user));
-          onLogin(data.user);
-        } catch (err) {
-          setError('❌ ' + err.message);
-        }
-      };
-
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm">
-            <div className="text-center mb-8">
-              <div className="text-6xl mb-3">🐝</div>
-              <h1 className="text-4xl font-bold text-white">Beelee</h1>
-            </div>
-
-            <div className="bg-white rounded-2xl p-8">
-              <div className="space-y-5">
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Username"
-                  className="w-full px-4 py-3 border-2 rounded-xl"
-                />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password"
-                  className="w-full px-4 py-3 border-2 rounded-xl"
-                />
-                {error && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
-                <button onClick={handleLogin} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold text-lg">
-                  Sign In
-                </button>
-              </div>
-            </div>
+            <button type="button" onClick={logout}
+              style={{fontSize:14,color:'#3478F6',fontWeight:500}}>
+              {user.name||user.id}
+            </button>
           </div>
         </div>
-      );
-    }
+      </div>
 
-    function App() {
-      const [activeTab, setActiveTab] = useState('products');
-      const [loggedInUser, setLoggedInUser] = useState(() => {
-        const token = localStorage.getItem('beelee_token');
-        const userStr = localStorage.getItem('beelee_user');
-        if (token && userStr) {
-          try { return JSON.parse(userStr); } catch { return null; }
-        }
-        return null;
-      });
-      
-      const { productsById, productIds, dbReady, totalProductCount, searchProducts, getCategories, getStores, addProductsFromFile, autoLoading, lastUpdated, autoLoadError, refreshFromGitHub } = useProducts();
-      const { recipes, currentRecipe, saveRecipe, loadRecipe, deleteRecipe, updateRecipeName, addIngredient, removeIngredient, updateIngredientQuantity, createNewRecipe } = useRecipes(productsById);
-      const { basket, addToBasket, removeFromBasket, updateBasketQuantity, clearBasket, addRecipeToBasket } = useBasket();
+      {/* Content */}
+      <div style={{maxWidth:640,margin:'0 auto',paddingTop:8}}>
+        {tab==='products' && (
+          <ProductsTab
+            products={products} dbReady={dbReady} total={total} loading={loading}
+            search={search} getCats={getCats} getStores={getStores}
+            basket={basket} onAdd={add} inBasket={inBasket} getQty={getQty}
+          />
+        )}
+        {tab==='basket' && (
+          <BasketTab basket={basket} getByIds={getByIds} setQty={setQty} remove={remove} clear={clear} />
+        )}
+      </div>
 
-      if (!loggedInUser) return <LoginScreen onLogin={setLoggedInUser} />;
+      {/* Things 3-style tab bar */}
+      <nav className="t3-tabbar safe-bottom">
+        <div style={{display:'flex',maxWidth:640,margin:'0 auto',width:'100%'}}>
 
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-3 md:p-6">
-          <div className="max-w-6xl mx-auto">
-            <div className="bg-white rounded-2xl shadow-xl p-4 md:p-8">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <h1 className="text-2xl md:text-4xl font-bold text-gray-800">🐝 Beelee</h1>
-                  <p className="text-sm text-gray-600">Mobile-optimized smart shopping</p>
-                </div>
-                <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="text-xs px-3 py-1.5 bg-gray-100 rounded-lg">
-                  Sign Out
-                </button>
-              </div>
+          {/* Products tab */}
+          <button type="button" className={`t3-tab ${tab==='products'?'active':''}`} onClick={()=>setTab('products')}>
+            <svg viewBox="0 0 24 24" fill={tab==='products'?'#3478F6':'none'} stroke={tab==='products'?'#3478F6':'#8E8E93'} strokeWidth="1.8" strokeLinecap="round">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+            </svg>
+            Søg
+          </button>
 
-              {autoLoading && (
-                <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg flex items-center gap-3">
-                  <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                  <p className="text-sm text-indigo-700">Caching products...</p>
-                </div>
-              )}
+          {/* Basket tab */}
+          <button type="button" className={`t3-tab ${tab==='basket'?'active':''}`}
+            onClick={()=>setTab('basket')} style={{position:'relative'}}>
+            <svg viewBox="0 0 24 24" fill={tab==='basket'?'#3478F6':'none'} stroke={tab==='basket'?'#3478F6':'#8E8E93'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>
+            </svg>
+            {basketCount > 0 && <span className="badge">{basketCount > 99?'99+':basketCount}</span>}
+            Kurv
+          </button>
 
-              {!autoLoading && lastUpdated && (
-                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between">
-                  <p className="text-sm text-green-700">{totalProductCount} products cached · {lastUpdated}</p>
-                  <button onClick={refreshFromGitHub} className="text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg">🔄 Refresh</button>
-                </div>
-              )}
-
-              <div className="flex gap-2 mt-4 mb-6 border-b border-gray-200 overflow-x-auto">
-                <button onClick={() => setActiveTab('products')} className={`flex items-center gap-2 px-4 py-3 font-semibold ${activeTab === 'products' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500'}`}>
-                  <ShoppingCart className="w-5 h-5" />
-                  Products
-                </button>
-                <button onClick={() => setActiveTab('offers')} className={`flex items-center gap-2 px-4 py-3 font-semibold ${activeTab === 'offers' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-500'}`}>
-                  <TrendingDown className="w-5 h-5" />
-                  Offers
-                </button>
-                <button onClick={() => setActiveTab('basket')} className={`flex items-center gap-2 px-4 py-3 font-semibold ${activeTab === 'basket' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500'}`}>
-                  <ShoppingBag className="w-5 h-5" />
-                  Basket
-                  {basket.length > 0 && <span className="bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{basket.length}</span>}
-                </button>
-              </div>
-
-              {activeTab === 'products' && <ProductsTab productsById={productsById} productIds={productIds} dbReady={dbReady} totalProductCount={totalProductCount} searchProducts={searchProducts} getCategories={getCategories} getStores={getStores} onAddToBasket={addToBasket} />}
-              {activeTab === 'offers' && <BestOffersTab productsById={productsById} onAddToBasket={addToBasket} />}
-              {activeTab === 'basket' && (
-                <div className="text-center py-12">
-                  <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-600">{basket.length === 0 ? 'Basket is empty' : `${basket.length} items in basket`}</p>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
-      );
-    }
+      </nav>
+    </div>
+  );
+}
 
-    ReactDOM.render(<App />, document.getElementById('root'));
-  </script>
+ReactDOM.render(<App />, document.getElementById('root'));
+</script>
 </body>
 </html>
