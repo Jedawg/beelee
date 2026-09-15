@@ -1,0 +1,109 @@
+name: 🐝 Beelee Nightly Scraper
+
+on:
+  # Run every night at midnight Copenhagen time (23:00 UTC)
+  schedule:
+    - cron: '0 23 * * *'
+
+  # Manual trigger from GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+
+      # 1. Download repository
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. Install Python
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # 3. Install dependencies
+      - name: 📦 Install dependencies
+        run: pip install -r scrapers/requirements.txt
+
+      # 4. Run Rema1000 scraper (new digital API — no longer uses Algolia)
+      - name: 🛒 Run Rema1000 scraper
+        run: |
+          echo "Starting Rema1000 scraper..."
+          python scrapers/rema1000_scraper.py
+          echo "Rema1000 done!"
+        continue-on-error: true
+
+      # 5. Run Aviser scraper (weekly offers from all stores)
+      - name: 📰 Run Aviser scraper
+        run: |
+          echo "Starting Aviser scraper..."
+          python scrapers/aviser_scraper.py
+          echo "Aviser done!"
+        continue-on-error: true
+
+      # 6. Run Wolt scraper (Meny + other stores via Wolt)
+      - name: 🚴 Run Wolt scraper
+        run: |
+          echo "Starting Wolt scraper..."
+          python scrapers/wolt_scraper.py
+          echo "Wolt done!"
+        continue-on-error: true
+
+      # 7. Show what each scraper produced
+      - name: 📊 Show scraper results
+        run: |
+          echo "=== Files in data/ ==="
+          ls -lh data/ 2>/dev/null || echo "No data/ folder yet"
+          echo ""
+          for f in data/aviser_products.xlsx data/rema1000_products.xlsx data/wolt_products.xlsx; do
+            if [ -f "$f" ]; then
+              echo "✅ $(basename $f)"
+            else
+              echo "❌ $(basename $f) — NOT created"
+            fi
+          done
+
+      # 8. Merge all scrapers + harmonize categories → products.xlsx
+      - name: 🔀 Merge and harmonize
+        run: |
+          echo "Merging all products..."
+          python scrapers/merge_products_with_categories.py
+          echo "Merge done!"
+
+      # 9. Verify final output
+      - name: ✅ Verify output
+        run: |
+          if [ -f "data/products.xlsx" ]; then
+            SIZE=$(du -h data/products.xlsx | cut -f1)
+            echo "✅ products.xlsx created — $SIZE"
+          else
+            echo "❌ products.xlsx was NOT created!"
+            exit 1
+          fi
+
+      # 10. Commit all data files back to GitHub
+      - name: 💾 Commit and push
+        run: |
+          git config --local user.email "beelee-bot@users.noreply.github.com"
+          git config --local user.name "Beelee Bot 🐝"
+
+          # Stage all generated data files
+          git add data/products.xlsx
+          git add data/rema1000_products.xlsx  2>/dev/null || true
+          git add data/aviser_products.xlsx    2>/dev/null || true
+          git add data/wolt_products.xlsx      2>/dev/null || true
+
+          # Only commit if something actually changed
+          if git diff --staged --quiet; then
+            echo "No changes — products are up to date"
+          else
+            git commit -m "🐝 Auto-update products $(date +'%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
