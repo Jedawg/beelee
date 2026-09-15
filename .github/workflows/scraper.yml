@@ -48,12 +48,11 @@ jobs:
           echo "Aviser done!"
         continue-on-error: true
 
-      # 6. Run Wolt scraper (Meny + other stores via Wolt)
+      # 6. Run Wolt scraper (Meny full catalogue via Wolt)
       - name: 🚴 Run Wolt scraper
         run: |
           echo "Starting Wolt scraper..."
-          python scrapers/wolt_scraper.py
-          echo "Wolt done!"
+          python scrapers/wolt_scraper.py && echo "Wolt done!" || echo "⚠️ Wolt scraper failed — Wolt may block cloud IPs. Run locally and commit wolt_products.xlsx manually."
         continue-on-error: true
 
       # 7. Show what each scraper produced
