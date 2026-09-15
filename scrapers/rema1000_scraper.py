@@ -2,147 +2,251 @@ import requests
 import time
 import base64
 from io import BytesIO
+from datetime import datetime
 import pandas as pd
 from PIL import Image
 import os
 
-# ---------------- CONFIG ----------------
-ALGOLIA_APP_ID = "FLWDN2189E"
-ALGOLIA_API_KEY = "fa20981a63df668e871a87a8fbd0caed"
-INDEX_NAME = "aws-prod-products"
+# ─────────────────── CONFIG ───────────────────
+BASE_URL        = "https://api.digital.rema1000.dk/api/search/products"
+DEPARTMENTS_URL = "https://api.digital.rema1000.dk/api/departments"
+PER_PAGE        = 200
+SORT            = "-popularity"
+IMAGE_SIZE      = (300, 300)
+IMAGE_QUALITY   = 75
 
-# FULL CATALOG MODE - Get ALL products!
-MAX_PRODUCTS = None  # None = unlimited, get everything!
+# Save next to the script file
+SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR    = os.path.join(SCRIPT_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+OUTPUT_FILE = os.path.join(DATA_DIR, "rema1000_products.xlsx")
+# ──────────────────────────────────────────────
 
-# MEDIUM RESOLUTION
-IMAGE_SIZE = (300, 300)  # Medium quality
-IMAGE_QUALITY = 75  # Good quality
-
-os.makedirs("data", exist_ok=True)
-OUTPUT_FILE = "data/rema1000_products.xlsx"
-# ----------------------------------------
-
-print("🐝 Rema1000 Scraper - FULL CATALOG MODE")
-print("=" * 60)
-
-url = f"https://{ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/{INDEX_NAME}/browse"
-headers = {
-    "X-Algolia-API-Key": ALGOLIA_API_KEY,
-    "X-Algolia-Application-Id": ALGOLIA_APP_ID,
-    "Content-Type": "application/json",
+HEADERS = {
+    "User-Agent":      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+    "Accept":          "application/json",
+    "Accept-Language": "da-DK,da;q=0.9",
+    "Referer":         "https://shop.rema1000.dk/",
+    "Origin":          "https://shop.rema1000.dk",
 }
 
-products = []
-cursor = None
+print("🐝 Rema1000 Scraper — api.digital.rema1000.dk")
+print("=" * 60)
 
-# ---------- FETCH ALL PRODUCTS ----------
-print("⏳ Fetching ALL Rema1000 products from Algolia...")
-batch = 0
 
-while True:
-    payload = {}
-    if cursor:
-        payload["cursor"] = cursor
+# ──────────────────────────────────────────────
+# Fetch one page
+# ──────────────────────────────────────────────
+def fetch_page(page, department_id=None):
+    params = {
+        "query":    "",
+        "page":     page,
+        "per_page": PER_PAGE,
+        "sort":     SORT,
+    }
+    if department_id is not None:
+        params["filter[departments]"] = department_id
+    r = requests.get(BASE_URL, params=params, headers=HEADERS, timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+
+# ──────────────────────────────────────────────
+# Parse pagination from response
+# Response shape: { "data": [...], "meta": { "pagination": { "last_page": 20, "total": 3830 } } }
+# ──────────────────────────────────────────────
+def parse_pagination(data):
+    if isinstance(data, list):
+        return data, len(data), 1
+
+    items = (
+        data.get("data")
+        or data.get("products")
+        or data.get("results")
+        or []
+    )
+
+    # Pagination is nested: meta → pagination
+    meta       = data.get("meta") or {}
+    pagination = meta.get("pagination") or meta
+
+    total      = int(pagination.get("total")     or len(items) or 0)
+    last_page  = int(pagination.get("last_page") or 1)
+
+    return items, total, last_page
+
+
+# ──────────────────────────────────────────────
+# Parse one product
+# ──────────────────────────────────────────────
+def parse_product(item):
+    # Price from prices[0].price
+    prices = item.get("prices") or []
+    price  = None
+    remaining_days = None
+
+    if prices:
+        p0    = prices[0]
+        price = p0.get("price")
+
+        # If ending_at is not year 2099, it's a limited-time offer
+        ending_at = p0.get("ending_at") or ""
+        if ending_at and not ending_at.startswith("2099"):
+            try:
+                exp = datetime.strptime(ending_at[:10], "%Y-%m-%d")
+                remaining_days = max(0, (exp - datetime.now()).days)
+            except Exception:
+                pass
 
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        print(f"❌ Failed to fetch batch: {e}")
-        break
-
-    hits = data.get("hits", [])
-    if not hits:
-        break
-
-    for hit in hits:
+        price = float(price) if price is not None else None
+    except (TypeError, ValueError):
         price = None
-        pricing = hit.get("pricing", {})
-        if isinstance(pricing, dict):
-            price = pricing.get("price")
 
-        image_url = None
-        images = hit.get("images", [])
-        if images:
-            # Get the BEST available image (medium > small)
-            image_url = images[0].get("medium") or images[0].get("large") or images[0].get("small")
+    # Category: category.name → department.name → "Andet"
+    cat = None
+    raw_cat  = item.get("category")  or {}
+    raw_dept = item.get("department") or {}
+    if isinstance(raw_cat, dict):
+        cat = raw_cat.get("name")
+    if not cat and isinstance(raw_dept, dict):
+        cat = raw_dept.get("name")
+    cat = cat or "Andet"
 
-        products.append({
-            "title": hit.get("name"),
-            "price": price,
-            "category": hit.get("category_name"),
-            "store": "Rema1000",
-            "image_url": image_url,
-        })
+    # Image: images[0].medium (webp — PIL handles it)
+    image_url = None
+    images = item.get("images") or []
+    if images and isinstance(images[0], dict):
+        image_url = (
+            images[0].get("medium")
+            or images[0].get("large")
+            or images[0].get("small")
+        )
 
-    batch += 1
-    print(f"  Batch {batch}: {len(products)} products fetched...")
+    return {
+        "title":          item.get("name") or "Ukendt",
+        "price":          price,
+        "category":       cat,
+        "store":          "Rema1000",
+        "image_url":      image_url,
+        "remaining_days": remaining_days,
+    }
 
-    cursor = data.get("cursor")
-    if not cursor:
-        break
 
-    time.sleep(0.3)  # Be nice to the API
+# ──────────────────────────────────────────────
+# Collect all products (paginate all 20 pages)
+# ──────────────────────────────────────────────
+def collect_all_products():
+    seen   = set()
+    result = []
 
-print(f"✅ Fetched {len(products)} products total")
+    print("\n📦 Fetching all products (empty query = full catalogue)...")
 
-# ---------- DOWNLOAD AND CONVERT IMAGES ----------
-print(f"\n⏳ Downloading images (medium resolution {IMAGE_SIZE[0]}x{IMAGE_SIZE[1]}px)...")
-print("   This may take a while for the full catalog...")
+    # Page 1
+    first = fetch_page(page=1)
+    items, total, last_page = parse_pagination(first)
 
-success = 0
-failed = 0
+    print(f"  Total products: {total}  Pages: {last_page}")
 
-for i, product in enumerate(products):
-    image_url = product.pop("image_url", None)
-    
-    if not image_url:
-        product["image_base64"] = None
-        failed += 1
-        continue
+    if not items:
+        print("  ❌ No products on page 1 — check the API URL")
+        return result
 
-    try:
-        r = requests.get(image_url, timeout=15)
-        r.raise_for_status()
+    for item in items:
+        p = parse_product(item)
+        k = p["title"].lower().strip()
+        if k not in seen:
+            seen.add(k)
+            result.append(p)
+    print(f"  Page  1/{last_page}: {len(result)} products")
 
-        img = Image.open(BytesIO(r.content)).convert("RGB")
-        
-        # Resize to medium resolution
-        img.thumbnail(IMAGE_SIZE, Image.Resampling.LANCZOS)
+    # Pages 2 → last_page
+    for page in range(2, last_page + 1):
+        try:
+            data  = fetch_page(page=page)
+            items, _, _ = parse_pagination(data)
+            if not items:
+                print(f"  Page {page:2}/{last_page}: empty — stopping")
+                break
+            added = 0
+            for item in items:
+                p = parse_product(item)
+                k = p["title"].lower().strip()
+                if k not in seen:
+                    seen.add(k)
+                    result.append(p)
+                    added += 1
+            print(f"  Page {page:2}/{last_page}: +{added:3}  (total: {len(result)})")
+            time.sleep(0.25)
+        except Exception as e:
+            print(f"  ⚠️  Page {page} failed: {e} — stopping")
+            break
 
-        buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=IMAGE_QUALITY)
-        img_str = base64.b64encode(buffer.getvalue()).decode()
+    return result
 
-        product["image_base64"] = f"data:image/jpeg;base64,{img_str}"
-        success += 1
-    except Exception as e:
-        product["image_base64"] = None
-        failed += 1
 
-    # Progress update every 500 products
-    if (i + 1) % 500 == 0:
-        print(f"  Processed {i + 1}/{len(products)} images ({success} successful, {failed} failed)...")
+# ──────────────────────────────────────────────
+# Download images (webp → JPEG base64)
+# ──────────────────────────────────────────────
+def download_images(products):
+    print(f"\n⏳ Downloading {len(products)} images ({IMAGE_SIZE[0]}×{IMAGE_SIZE[1]}px)...")
+    ok = fail = 0
 
-print(f"✅ Images processed: {success} successful, {failed} failed")
+    for i, p in enumerate(products):
+        url = p.pop("image_url", None)
 
-# ---------- SAVE TO EXCEL ----------
-print(f"\n💾 Saving to {OUTPUT_FILE}...")
+        if not url:
+            p["image_base64"] = None
+            fail += 1
+            continue
 
-df = pd.DataFrame(products, columns=["title", "price", "category", "store", "image_base64"])
+        try:
+            r   = requests.get(url, timeout=15, headers=HEADERS)
+            r.raise_for_status()
+            img = Image.open(BytesIO(r.content)).convert("RGB")
+            img.thumbnail(IMAGE_SIZE, Image.Resampling.LANCZOS)
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=IMAGE_QUALITY)
+            p["image_base64"] = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+            ok += 1
+        except Exception as e:
+            p["image_base64"] = None
+            fail += 1
+
+        if (i + 1) % 200 == 0:
+            pct = (i + 1) / len(products) * 100
+            print(f"  {i+1}/{len(products)} ({pct:.0f}%)  ✅ {ok}  ❌ {fail}")
+
+    print(f"✅ Images: {ok} ok  {fail} failed")
+    return products
+
+
+# ──────────────────────────────────────────────
+# Run
+# ──────────────────────────────────────────────
+products = collect_all_products()
+print(f"\n✅ Collected {len(products)} unique products")
+
+products = download_images(products)
+
+df = pd.DataFrame(
+    products,
+    columns=["title", "price", "category", "store", "image_base64", "remaining_days"]
+)
+df = df.dropna(subset=["title", "price"])
 df.to_excel(OUTPUT_FILE, index=False)
 
-file_size_mb = os.path.getsize(OUTPUT_FILE) / (1024 * 1024)
+size_mb = os.path.getsize(OUTPUT_FILE) / (1024 * 1024)
 
 print(f"\n{'=' * 60}")
 print(f"🐝 Rema1000 Scraper Complete!")
 print(f"{'=' * 60}")
-print(f"Total Products:    {len(products)}")
-print(f"With Images:       {success}")
-print(f"Without Images:    {failed}")
-print(f"Image Size:        {IMAGE_SIZE[0]}x{IMAGE_SIZE[1]}px")
-print(f"Image Quality:     {IMAGE_QUALITY}%")
-print(f"Output File:       {OUTPUT_FILE}")
-print(f"File Size:         {file_size_mb:.2f} MB")
+print(f"Products saved:   {len(df)}")
+print(f"Output file:      {OUTPUT_FILE}")
+print(f"File size:        {size_mb:.2f} MB")
 print(f"{'=' * 60}")
+
+# Category breakdown
+print("\n📊 Category breakdown:")
+for cat, count in df["category"].value_counts().head(15).items():
+    print(f"   {cat}: {count}")
