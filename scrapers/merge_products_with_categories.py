@@ -12,8 +12,9 @@ from datetime import datetime
 from glob import glob
 
 # ── Always work relative to THIS script's location ──
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR   = os.path.join(SCRIPT_DIR, "data")
+SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
+GITHUB_WORKSPACE = os.environ.get('GITHUB_WORKSPACE')
+DATA_DIR         = os.path.join(GITHUB_WORKSPACE, 'data') if GITHUB_WORKSPACE else os.path.join(SCRIPT_DIR, 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # ==================== CONFIG ====================

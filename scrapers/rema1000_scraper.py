@@ -15,9 +15,10 @@ SORT            = "-popularity"
 IMAGE_SIZE      = (300, 300)
 IMAGE_QUALITY   = 75
 
-# Save next to the script file
-SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR    = os.path.join(SCRIPT_DIR, "data")
+# Save next to the script locally, but to repo root in GitHub Actions
+SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
+GITHUB_WORKSPACE = os.environ.get('GITHUB_WORKSPACE')
+DATA_DIR         = os.path.join(GITHUB_WORKSPACE, 'data') if GITHUB_WORKSPACE else os.path.join(SCRIPT_DIR, 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
 OUTPUT_FILE = os.path.join(DATA_DIR, "rema1000_products.xlsx")
 # ──────────────────────────────────────────────
