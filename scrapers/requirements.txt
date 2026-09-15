@@ -1,5 +1,15 @@
-requests==2.31.0
-Pillow==10.2.0
+# Beelee scraper dependencies
+
+# Data
+pandas==2.2.2
 openpyxl==3.1.2
-pandas==2.2.0
-xlsxwriter==3.1.9
+xlrd==2.0.1
+
+# HTTP
+requests==2.31.0
+
+# HTML parsing (Wolt scraper)
+beautifulsoup4==4.12.3
+
+# Images
+Pillow==10.3.0
