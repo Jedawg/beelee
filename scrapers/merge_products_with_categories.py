@@ -36,31 +36,220 @@ COLUMNS = ["title", "price", "category", "store", "remaining_days", "image_base6
 # ==================== CATEGORY CONFIG ====================
 
 CATEGORY_MAP = {
-    # Wolt categories → standard
-    "Frugt & grønt":      "Frugt og grønt",
-    "Kød & fisk":         "Kød",
-    "Mejeri & køl":       "Mejeri",
-    "Kiks & kager":       "Brød og kager",
-    "Slik & chocolade":   "Slik og snacks",
-    "Chips & snacks":     "Slik og snacks",
-    "Kaffe & te":         "Drikkevarer",
-    "Drikkevarer":        "Drikkevarer",
-    "Spisekammeret":      "Kolonial",
-    "Verdensmad":         "Kolonial",
-    "Convenience":        "Kolonial",
-    # Other common variations
-    "Frugt & Grønt":      "Frugt og grønt",
-    "Kød & Fjerkræ":      "Kød",
-    "Vegetables":         "Frugt og grønt",
-    "Fruits":             "Frugt og grønt",
-    "Meat":               "Kød",
-    "Dairy":              "Mejeri",
-    "Beverages":          "Drikkevarer",
-    "Snacks":             "Slik og snacks",
-    "Frozen":             "Frost",
-    "Breakfast":          "Morgenmad",
-    "":                   "Andet",
-    None:                 "Andet",
+    # ── Frugt og grønt ──────────────────────────────────────────────────────
+    "Frugt & grønt":                               "Frugt og grønt",
+    "Frugt & Grønt":                               "Frugt og grønt",
+    "Grøntsager, frugt & bær":                     "Frugt og grønt",
+    "Salater, fint grønt & avocado":               "Frugt og grønt",
+    "Grov grønt":                                  "Frugt og grønt",
+    "Kål":                                         "Frugt og grønt",
+    "Kartofler & løg":                             "Frugt og grønt",
+    "Agurk, tomat & peberfrugt":                   "Frugt og grønt",
+    "Melon, bær, vindruer & eksotisk frugt":       "Frugt og grønt",
+    "Pære, æble, banan & citrusfrugt":             "Frugt og grønt",
+    "Snittet frugt & grønt":                       "Frugt og grønt",
+    "Blommer, fersken, nektariner & kiwi":         "Frugt og grønt",
+    "Krydderurter & smagsforstærkere":             "Frugt og grønt",
+    "HVERDAGSPRIS":                                "Frugt og grønt",
+    "Vegetables":                                  "Frugt og grønt",
+    "Fruits":                                      "Frugt og grønt",
+
+    # ── Kød ─────────────────────────────────────────────────────────────────
+    "Kød & fjerkræ":                               "Kød",
+    "Kød & fisk":                                  "Kød",
+    "Kød & Fjerkræ":                               "Kød",
+    "Hakket kød":                                  "Kød",
+    "Oksekød":                                     "Kød",
+    "Gris":                                        "Kød",
+    "Kylling":                                     "Kød",
+    "Lam":                                         "Kød",
+    "Pølser":                                      "Kød",
+    "Pålæg":                                       "Kød",
+    "Pålægs salater":                              "Kød",
+    "Bacon & toppings":                            "Kød",
+    "Postej/pate":                                 "Kød",
+    "Skiveskåret":                                 "Kød",
+    "Måltidssalater, pastasalater & nudelsalater": "Kød",
+    "Delikatesser":                                "Kød",
+    "Meat":                                        "Kød",
+
+    # ── Fisk ────────────────────────────────────────────────────────────────
+    "Fisk & skaldyr":                              "Fisk",
+    "Fisk & Skaldyr":                              "Fisk",
+    "Fisk, sild & skaldyr":                        "Fisk",
+    "Fiskekonserves":                              "Fisk",
+
+    # ── Mejeri ──────────────────────────────────────────────────────────────
+    "Mejeri & køl":                                "Mejeri",
+    "Mælk m.v.":                                   "Mejeri",
+    "Yoghurt m.v.":                                "Mejeri",
+    "Fløde m.v.":                                  "Mejeri",
+    "Smør & fedtstoffer":                          "Mejeri",
+    "Margarine":                                   "Mejeri",
+    "Syrnede produkter":                           "Mejeri",
+    "Æg":                                          "Mejeri",
+    "Hytteost":                                    "Mejeri",
+    "Specialost":                                  "Mejeri",
+    "Skæreost":                                    "Mejeri",
+    "Hård ost":                                    "Mejeri",
+    "Madlavningsost m.v.":                         "Mejeri",
+    "Smøreost":                                    "Mejeri",
+    "Børneost":                                    "Mejeri",
+    "Koldskål":                                    "Mejeri",
+    "Mælkesnitte/dessert":                         "Mejeri",
+    "Plantedrikke":                                "Mejeri",
+    "Plantebaseret":                               "Mejeri",
+    "Plantebaserede produkter":                    "Mejeri",
+    "Plantebaserede alternativer":                 "Mejeri",
+    "Ost":                                         "Mejeri",
+    "Juice, kakao, drikkeyoghurt m.v.":            "Mejeri",
+    "Dairy":                                       "Mejeri",
+
+    # ── Brød og kager ───────────────────────────────────────────────────────
+    "Brød & kager":                                "Brød og kager",
+    "Brød":                                        "Brød og kager",
+    "Rugbrød":                                     "Brød og kager",
+    "Boller":                                      "Brød og kager",
+    "Kiks, kager & knækbrød":                      "Brød og kager",
+    "Kiks & kager":                                "Brød og kager",
+    "Bavinchi bager":                              "Brød og kager",
+    "Baguette/flutes":                             "Brød og kager",
+    "Fast food brød":                              "Brød og kager",
+    "Sandwiches & wraps":                          "Brød og kager",
+    "Dej":                                         "Brød og kager",
+    "Kager":                                       "Brød og kager",
+    "Frisk pasta":                                 "Brød og kager",
+
+    # ── Drikkevarer ─────────────────────────────────────────────────────────
+    "Sodavand, vand, smoothies m.v.":              "Drikkevarer",
+    "Juice m.v.":                                  "Drikkevarer",
+    "Saft m.v.":                                   "Drikkevarer",
+    "Kaffe":                                       "Drikkevarer",
+    "Instant kaffe":                               "Drikkevarer",
+    "Kaffetilbehør":                               "Drikkevarer",
+    "Te":                                          "Drikkevarer",
+    "Kakao":                                       "Drikkevarer",
+    "Kaffe & te":                                  "Drikkevarer",
+    "Øl":                                          "Drikkevarer",
+    "Special øl":                                  "Drikkevarer",
+    "Alkoholfri øl/vin":                           "Drikkevarer",
+    "Rødvin":                                      "Drikkevarer",
+    "Hvidvin":                                     "Drikkevarer",
+    "Rosevin":                                     "Drikkevarer",
+    "Mousserende vin":                             "Drikkevarer",
+    "Vin":                                         "Drikkevarer",
+    "Hedvin/aperitif":                             "Drikkevarer",
+    "Spiritus":                                    "Drikkevarer",
+    "Energidrikke":                                "Drikkevarer",
+    "Ready to drink":                              "Drikkevarer",
+    "Shots, juice & smoothies":                    "Drikkevarer",
+    "Cider & RTD":                                 "Drikkevarer",
+    "Drikkevarer":                                 "Drikkevarer",
+    "Beverages":                                   "Drikkevarer",
+
+    # ── Slik og snacks ──────────────────────────────────────────────────────
+    "Chips og snacks":                             "Slik og snacks",
+    "Chips & snacks":                              "Slik og snacks",
+    "Chokolade m.v.":                              "Slik og snacks",
+    "Lakrids m.v.":                                "Slik og snacks",
+    "Vingummi":                                    "Slik og snacks",
+    "Bolcher":                                     "Slik og snacks",
+    "Nødder & tørret frugt":                       "Slik og snacks",
+    "Pastiller":                                   "Slik og snacks",
+    "Skum":                                        "Slik og snacks",
+    "Mixposer":                                    "Slik og snacks",
+    "Karamel m.v.":                                "Slik og snacks",
+    "Tyggegummi":                                  "Slik og snacks",
+    "Marcipan m.v.":                               "Slik og snacks",
+    "Slik & chocolade":                            "Slik og snacks",
+    "Snacks":                                      "Slik og snacks",
+
+    # ── Frost ───────────────────────────────────────────────────────────────
+    "Is og dessert":                               "Frost",
+    "Pizza":                                       "Frost",
+    "Kartofler":                                   "Frost",
+    "Frys-selv-is":                                "Frost",
+    "Frozen":                                      "Frost",
+
+    # ── Morgenmad ───────────────────────────────────────────────────────────
+    "Marmelade & chokolade pålæg m.v.":            "Morgenmad",
+    "Morgenmad":                                   "Morgenmad",
+    "Breakfast":                                   "Morgenmad",
+
+    # ── Kolonial ────────────────────────────────────────────────────────────
+    "Mel, sukker, bagning":                        "Kolonial",
+    "Ris & pasta, mv":                             "Kolonial",
+    "Konserves & survarer":                        "Kolonial",
+    "Saucer & nem mad":                            "Kolonial",
+    "Dressing":                                    "Kolonial",
+    "Dressing & saucer":                           "Kolonial",
+    "Ketchup, remoulade, mayonnaise m.v.":         "Kolonial",
+    "Krydderier":                                  "Kolonial",
+    "Olie, eddike & balsamico":                    "Kolonial",
+    "Suppe & suppefyld":                           "Kolonial",
+    "Tex mex":                                     "Kolonial",
+    "Gær":                                         "Kolonial",
+    "Ready to cook":                               "Kolonial",
+    "Færdigretter":                                "Kolonial",
+    "Verdensmad":                                  "Kolonial",
+    "Spisekammeret":                               "Kolonial",
+    "Convenience":                                 "Kolonial",
+    "Delikatesse":                                 "Kolonial",
+    "Kosttilskud":                                 "Kolonial",
+
+    # ── Andet (non-food) ────────────────────────────────────────────────────
+    "Tekstil":                                     "Andet",
+    "Rengøringsartikler":                          "Andet",
+    "Rengøringsmidler":                            "Andet",
+    "Papir & poser":                               "Andet",
+    "Lys & servietter":                            "Andet",
+    "Kontor & legetøj":                            "Andet",
+    "Service":                                     "Andet",
+    "Køkkenredskaber":                             "Andet",
+    "Vask & opvask":                               "Andet",
+    "Kemisk teknisk":                              "Andet",
+    "El":                                          "Andet",
+    "Batterier":                                   "Andet",
+    "Fuglefoder":                                  "Andet",
+    "Hundemad":                                    "Andet",
+    "Kattemad":                                    "Andet",
+    "Dyreartikler":                                "Andet",
+    "Kæledyr":                                     "Andet",
+    "Baby- og småbørnsmad":                        "Andet",
+    "Baby":                                        "Andet",
+    "Bleer":                                       "Andet",
+    "Sutter":                                      "Andet",
+    "Diverse baby":                                "Andet",
+    "Vat, bind & tamponer":                        "Andet",
+    "Sæbe":                                        "Andet",
+    "Mundpleje":                                   "Andet",
+    "Shampoo/Balsam":                              "Andet",
+    "Deodorant":                                   "Andet",
+    "Cremer til krop/hænder":                      "Andet",
+    "Ansigt":                                      "Andet",
+    "Hår styling":                                 "Andet",
+    "Læbepomade":                                  "Andet",
+    "Lommeletter/plaster":                         "Andet",
+    "Barberartikler":                              "Andet",
+    "Ugeblade":                                    "Andet",
+    "Cigaretter":                                  "Andet",
+    "Pibetobak":                                   "Andet",
+    "Tobak":                                       "Andet",
+    "Hylster/papir/renser":                        "Andet",
+    "Optænding":                                   "Andet",
+    "Indpakning/kort":                             "Andet",
+    "Fødselsdag":                                  "Andet",
+    "Toiletpapir/køkkenruller":                    "Andet",
+    "Sæson":                                       "Andet",
+    "Tilbehør":                                    "Andet",
+    "Diverse":                                     "Andet",
+    "Aviser":                                      "Andet",
+    "Husholdning":                                 "Andet",
+    "Personlig pleje":                             "Andet",
+    # NOTE: "DANSKE MADSKATTE" and "Aarstiderne" intentionally omitted here
+    # so they fall through to keyword matching (they contain real food products)
+    "":                                            "Andet",
+    None:                                          "Andet",
 }
 
 MASTER_CATEGORIES = [
@@ -68,6 +257,34 @@ MASTER_CATEGORIES = [
     "Brød og kager", "Drikkevarer", "Slik og snacks",
     "Frost", "Morgenmad", "Kolonial", "Andet",
 ]
+
+# Non-food category names — products in these are dropped entirely before harmonizing.
+# Food-adjacent categories (Baby- og småbørnsmad, Kosttilskud, Sæson) are kept.
+EXCLUDE_CATEGORIES = {
+    # Personal care
+    "Sæbe", "Mundpleje", "Shampoo/Balsam", "Deodorant",
+    "Cremer til krop/hænder", "Ansigt", "Hår styling",
+    "Læbepomade", "Barberartikler", "Lommeletter/plaster",
+    "Personlig pleje",
+    # Tobacco
+    "Cigaretter", "Pibetobak", "Hylster/papir/renser", "Tobak",
+    # Household & cleaning
+    "Rengøringsartikler", "Rengøringsmidler", "Vask & opvask",
+    "Kemisk teknisk", "Toiletpapir/køkkenruller", "Papir & poser",
+    "Lys & servietter", "Husholdning",
+    # Non-food goods
+    "Tekstil", "El", "Batterier", "Kontor & legetøj",
+    "Køkkenredskaber", "Service", "Indpakning/kort",
+    "Optænding", "Tilbehør", "Diverse",
+    # Pets
+    "Hundemad", "Kattemad", "Dyreartikler", "Fuglefoder", "Kæledyr",
+    # Baby non-food
+    "Bleer", "Sutter", "Diverse baby", "Vat, bind & tamponer", "Baby",
+    # Media
+    "Ugeblade", "Aviser",
+    # Seasonal / misc
+    "Fødselsdag",
+}
 
 KEYWORD_CATEGORIES = {
     "Frugt og grønt": [
@@ -308,6 +525,13 @@ for store, n in merged["store"].value_counts().items():
 
 merged = merged[merged["image_base64"].notna()]
 print(f"\nWith images: {len(merged)} products")
+
+# Drop known non-food categories before harmonizing
+before_excl = len(merged)
+merged = merged[~merged["category"].isin(EXCLUDE_CATEGORIES)]
+dropped = before_excl - len(merged)
+if dropped:
+    print(f"Removed {dropped} non-food products (tobacco, cleaning, pets, textiles…)")
 
 # ── Harmonize ───────────────────────────────────
 if HARMONIZE_CATEGORIES:
