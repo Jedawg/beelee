@@ -11,25 +11,25 @@ import re
 from datetime import datetime
 from glob import glob
 
-os.makedirs("data", exist_ok=True)
+# ── Always work relative to THIS script's location ──
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR   = os.path.join(SCRIPT_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # ==================== CONFIG ====================
 MAX_TOTAL_PRODUCTS   = 10000
 HARMONIZE_CATEGORIES = True
 
 # ── Which files to include ──────────────────────
-# Option A: Auto-discover (include every *_products.xlsx in data/)
-AUTO_DISCOVER = True
+AUTO_DISCOVER = True   # Auto-find all *_products.xlsx in data/
 
-# Option B: Explicit list (used when AUTO_DISCOVER = False)
 EXPLICIT_FILES = {
-    "Aviser":   "data/aviser_products.xlsx",
-    "Rema1000": "data/rema1000_products.xlsx",
-    "Wolt":     "data/wolt_products.xlsx",
+    "Aviser":   os.path.join(DATA_DIR, "aviser_products.xlsx"),
+    "Rema1000": os.path.join(DATA_DIR, "rema1000_products.xlsx"),
+    "Wolt":     os.path.join(DATA_DIR, "wolt_products.xlsx"),
 }
 # ─────────────────────────────────────────────────
 
-# Required output columns (missing ones filled with None)
 COLUMNS = ["title", "price", "category", "store", "remaining_days", "image_base64"]
 
 # ==================== CATEGORY CONFIG ====================
@@ -91,6 +91,7 @@ KEYWORD_CATEGORIES = {
         "bøf", "steak", "kotelet", "mørbrad", "schnitzel", "skinke",
         "leverpostej", "kalkun", "and", "culotte", "ribeye", "filet",
         "grillpølse", "wienerpølse", "kød",
+        "karbonader", "karbonade", "frikadeller", "frikadelle",
         "beef", "pork", "lamb", "chicken", "turkey", "duck",
         "sausage", "minced", "mince", "ham", "meat", "burger",
     ],
@@ -107,7 +108,8 @@ KEYWORD_CATEGORIES = {
         "yoghurt", "yogurt", "skyr", "ymer", "kefir",
         "smør", "margarine", "fløde", "piskefløde", "creme fraiche",
         "kvark", "hytteost", "cottage cheese", "ricotta",
-        "milk", "cheese", "butter", "cream", "yogurt", "dairy",
+        "æg", "æggene", "skrabeæg", "frilandsæg", "fraiche",
+        "milk", "cheese", "butter", "cream", "yogurt", "dairy", "egg", "eggs",
     ],
     "Brød og kager": [
         "brød", "rugbrød", "franskbrød", "ciabatta", "baguette", "pitabrød", "tortilla",
@@ -152,6 +154,7 @@ KEYWORD_CATEGORIES = {
         "sauce", "ketchup", "mayonnaise", "remoulade", "sennep", "dressing",
         "bouillon", "fond", "krydderi",
         "dåse", "konserves", "bønner",
+        "gær", "bagepulver", "rosiner", "korender", "sirup", "nougat",
         "rice", "flour", "sugar", "oil", "vinegar", "ketchup",
         "mayo", "mustard", "spice", "stock", "canned", "beans",
     ],
@@ -254,14 +257,20 @@ print("=" * 60)
 
 # ── Discover files ──────────────────────────────
 if AUTO_DISCOVER:
-    found_files = sorted(glob("data/*_products.xlsx"))
+    found_files = sorted(glob(os.path.join(DATA_DIR, "*_products.xlsx")))
     files = {os.path.basename(f).replace("_products.xlsx", "").title(): f
              for f in found_files}
-    print(f"\n📂 Auto-discovered {len(files)} file(s):")
+    print(f"\n📂 Looking in: {DATA_DIR}")
+    print(f"📂 Auto-discovered {len(files)} file(s):")
     for name, path in files.items():
-        print(f"   {name}: {path}")
+        size_mb = os.path.getsize(path) / 1024 / 1024 if os.path.exists(path) else 0
+        print(f"   {name}: {path}  ({size_mb:.1f} MB)")
 else:
     files = EXPLICIT_FILES
+    print(f"\n📂 Using explicit file list:")
+    for name, path in files.items():
+        exists = "✅" if os.path.exists(path) else "❌"
+        print(f"   {exists} {name}: {path}")
 
 # ── Load ────────────────────────────────────────
 all_dfs = []
@@ -290,8 +299,14 @@ merged = merged.dropna(subset=["title", "price"])
 merged = merged[merged["title"].astype(str).str.strip() != ""]
 print(f"After cleanup: {len(merged)} products")
 
+# Show store breakdown BEFORE image filter (helps diagnose missing stores)
+print(f"\n📊 Store counts before image filter:")
+for store, n in merged["store"].value_counts().items():
+    has_img = merged[merged["store"] == store]["image_base64"].notna().sum()
+    print(f"   {store}: {n} total  ({has_img} with images)")
+
 merged = merged[merged["image_base64"].notna()]
-print(f"With images: {len(merged)} products")
+print(f"\nWith images: {len(merged)} products")
 
 # ── Harmonize ───────────────────────────────────
 if HARMONIZE_CATEGORIES:
@@ -312,7 +327,7 @@ merged = merged.sort_values(
 ).drop("sort_priority", axis=1)
 
 # ── Save ────────────────────────────────────────
-output = "data/products.xlsx"
+output = os.path.join(DATA_DIR, "products.xlsx")
 merged.to_excel(output, index=False)
 mb = os.path.getsize(output) / 1024 / 1024
 
