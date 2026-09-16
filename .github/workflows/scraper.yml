@@ -30,7 +30,9 @@ jobs:
 
       # 3. Install dependencies
       - name: 📦 Install dependencies
-        run: pip install -r scrapers/requirements.txt
+        run: |
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-dan
+          pip install -r scrapers/requirements.txt
 
       # 4. Run Rema1000 scraper (new digital API — no longer uses Algolia)
       - name: 🛒 Run Rema1000 scraper
@@ -76,7 +78,23 @@ jobs:
           python scrapers/merge_products_with_categories.py
           echo "Merge done!"
 
-      # 9. Verify final output
+      # 9. Enrich with nutrition data + Nutri-Score
+      - name: 🥗 Enrich nutrition
+        run: |
+          echo "Looking up nutrition on Open Food Facts..."
+          python scrapers/enrich_nutrition.py
+          echo "Enrichment done!"
+        continue-on-error: true
+
+      # 10. Estimate Nutri-Score for products OFF didn't cover
+      - name: 🔬 Estimate missing Nutri-Scores
+        run: |
+          echo "Matching uncovered products against scored ones..."
+          python scrapers/estimate_nutriscore.py
+          echo "Estimation done!"
+        continue-on-error: true
+
+      # 11. Verify final output
       - name: ✅ Verify output
         run: |
           if [ -f "data/products.xlsx" ]; then
@@ -87,7 +105,7 @@ jobs:
             exit 1
           fi
 
-      # 10. Commit all data files back to GitHub
+      # 12. Commit all data files back to GitHub
       - name: 💾 Commit and push
         run: |
           git config --local user.email "beelee-bot@users.noreply.github.com"
@@ -98,6 +116,7 @@ jobs:
           git add data/rema1000_products.xlsx  2>/dev/null || true
           git add data/aviser_products.xlsx    2>/dev/null || true
           git add data/wolt_products.xlsx      2>/dev/null || true
+          git add data/off_cache.json          2>/dev/null || true
 
           # Only commit if something actually changed
           if git diff --staged --quiet; then
