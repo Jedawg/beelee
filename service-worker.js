@@ -10,10 +10,15 @@ const DATA_CACHE    = 'beelee-data-v3';
 // on every single load.
 const DATA_KEY = 'beelee-products-data';
 
+// The scope the SW was registered under — '/' at a domain root,
+// '/beelee/' on GitHub Pages. Everything local is resolved against it.
+const SCOPE = new URL(self.registration.scope).pathname;
+const SHELL = SCOPE + 'index.html';
+
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
+  SCOPE,
+  SHELL,
+  SCOPE + 'manifest.json',
   'https://cdn.tailwindcss.com',
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -88,13 +93,13 @@ self.addEventListener('fetch', (event) => {
   // ── The app shell — stale-while-revalidate ──
   // Serve instantly from cache, but always refresh in the background so a
   // new deploy lands on the next open without waiting for a version bump.
-  if (req.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('/index.html')) {
+  if (req.mode === 'navigate' || url.pathname === SCOPE || url.pathname.endsWith('/index.html')) {
     event.respondWith(
       caches.open(CACHE_NAME).then((cache) =>
-        cache.match('/index.html').then((cached) => {
+        cache.match(SHELL).then((cached) => {
           const fresh = fetch(req)
             .then((res) => {
-              if (res.ok) cache.put('/index.html', res.clone());
+              if (res.ok) cache.put(SHELL, res.clone());
               return res;
             })
             .catch(() => cached);

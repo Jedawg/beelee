@@ -13,8 +13,11 @@
   <script>
     if('serviceWorker' in navigator){
       window.addEventListener('load',()=>{
-        navigator.serviceWorker.register('/service-worker.js')
-          .then(()=>console.log('SW ok')).catch(()=>{});
+        // Relative path — works at a domain root AND under a GitHub Pages
+        // subpath like /beelee/. An absolute '/service-worker.js' 404s there.
+        navigator.serviceWorker.register('./service-worker.js')
+          .then(r=>console.log('SW registered, scope:',r.scope))
+          .catch(e=>console.warn('SW registration failed:',e));
       });
     }
   </script>
