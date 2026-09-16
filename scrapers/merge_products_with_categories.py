@@ -263,6 +263,27 @@ CATEGORY_MAP = {
     None:                                          "Andet",
 }
 
+
+# ── Excel-safe text ─────────────────────────────────────────────────────
+# openpyxl rejects the whole workbook if any cell holds a control character.
+ILLEGAL_XLSX = re.compile(r"[\000-\010\013\014\016-\037]")
+
+def xlsx_safe(v, limit=32000):
+    """Strip characters Excel can't store. Non-strings pass through."""
+    if not isinstance(v, str):
+        return v
+    v = ILLEGAL_XLSX.sub("", v)
+    v = v.replace("\r\n", "\n").replace("\r", "\n").strip()
+    return v[:limit] if len(v) > limit else v
+
+
+def clean_df_for_excel(df):
+    """Apply xlsx_safe to every object/string column."""
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].map(xlsx_safe)
+    return df
+
 MASTER_CATEGORIES = [
     "Øko",
     "Frugt og grønt", "Kød", "Fisk", "Mejeri",
@@ -620,6 +641,7 @@ merged = merged.sort_values(
 
 # ── Save ────────────────────────────────────────
 output = os.path.join(DATA_DIR, "products.xlsx")
+merged = clean_df_for_excel(merged)
 merged.to_excel(output, index=False)
 mb = os.path.getsize(output) / 1024 / 1024
 

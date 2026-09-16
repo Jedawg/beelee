@@ -39,6 +39,22 @@ CITIES = ["copenhagen", "aarhus", "odense", "aalborg", "herning"]
 
 BASE = "https://wolt.com"
 
+
+# ── Excel-safe text ─────────────────────────────────────────────────────
+# openpyxl refuses control characters, and rejects the ENTIRE workbook if
+# one cell contains one. Some product descriptions carry stray control
+# bytes, so scrub every string before writing.
+ILLEGAL_XLSX = re.compile(r"[\000-\010\013\014\016-\037]")
+
+def xlsx_safe(v, limit=32000):
+    """Strip characters Excel can't store. Returns v unchanged if not a string."""
+    if not isinstance(v, str):
+        return v
+    v = ILLEGAL_XLSX.sub("", v)
+    v = v.replace("\r\n", "\n").replace("\r", "\n").strip()
+    # Excel's hard cell limit is 32,767 characters
+    return v[:limit] if len(v) > limit else v
+
 sess = requests.Session()
 sess.headers.update({
     "User-Agent":      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126.0 Safari/537.36",
@@ -387,7 +403,7 @@ if not all_products:
 else:
     all_products = download_images(all_products)
     df = pd.DataFrame(
-        all_products,
+        [{k: xlsx_safe(v) for k, v in p.items()} for p in all_products],
         columns=["title","price","category","store","image_base64","barcode","ingredients"]
     ).dropna(subset=["title","price"])
     df.to_excel(OUTPUT_FILE, index=False)

@@ -23,6 +23,22 @@ os.makedirs(DATA_DIR, exist_ok=True)
 OUTPUT_FILE = os.path.join(DATA_DIR, "rema1000_products.xlsx")
 # ──────────────────────────────────────────────
 
+
+# ── Excel-safe text ─────────────────────────────────────────────────────
+# openpyxl refuses control characters, and rejects the ENTIRE workbook if
+# one cell contains one. Some product descriptions carry stray control
+# bytes, so scrub every string before writing.
+ILLEGAL_XLSX = re.compile(r"[\000-\010\013\014\016-\037]")
+
+def xlsx_safe(v, limit=32000):
+    """Strip characters Excel can't store. Returns v unchanged if not a string."""
+    if not isinstance(v, str):
+        return v
+    v = ILLEGAL_XLSX.sub("", v)
+    v = v.replace("\r\n", "\n").replace("\r", "\n").strip()
+    # Excel's hard cell limit is 32,767 characters
+    return v[:limit] if len(v) > limit else v
+
 HEADERS = {
     "User-Agent":      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
     "Accept":          "application/json",
@@ -245,7 +261,7 @@ print(f"\n✅ Collected {len(products)} unique products")
 products = download_images(products)
 
 df = pd.DataFrame(
-    products,
+    [{k: xlsx_safe(v) for k, v in p.items()} for p in products],
     columns=["title", "price", "category", "store", "image_base64", "remaining_days", "barcode", "ingredients"]
 )
 df = df.dropna(subset=["title", "price"])

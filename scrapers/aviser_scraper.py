@@ -29,8 +29,13 @@ PRODUCT_IMAGE_SIZE = (300, 300)  # Medium resolution
 IMAGE_QUALITY = 75  # Good quality
 REQUEST_TIMEOUT = 20
 
-os.makedirs("data", exist_ok=True)
-OUTPUT_FILE = "data/aviser_products.xlsx"
+# Same path handling as the other scrapers: repo root in Actions,
+# next to the script when run locally.
+SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
+GITHUB_WORKSPACE = os.environ.get("GITHUB_WORKSPACE")
+DATA_DIR         = os.path.join(GITHUB_WORKSPACE, "data") if GITHUB_WORKSPACE else os.path.join(SCRIPT_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+OUTPUT_FILE = os.path.join(DATA_DIR, "aviser_products.xlsx")
 
 # ---------------- HELPERS ----------------
 
@@ -66,6 +71,8 @@ ws.title = "Offers"
 ws.append(["title", "price", "category", "store", "remaining_days", "image_base64"])
 
 total_products = 0
+DEAD_FEEDS = []   # stores whose weekly URL has expired
+EMPTY_FEEDS = []  # stores that returned a feed but no products
 print("🐝 Aviser Scraper - FULL CATALOG MODE")
 print("=" * 60)
 
@@ -77,9 +84,14 @@ for store, url in CATALOGS.items():
 
     try:
         print(f"   Fetching catalog...")
-        data = requests.get(url, timeout=REQUEST_TIMEOUT).json()
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT)
+        if resp.status_code == 404:
+            raise ValueError("404 — the weekly catalog URL has expired")
+        resp.raise_for_status()
+        data = resp.json()
     except Exception as e:
         print(f"   ❌ Failed to fetch {store}: {e}")
+        DEAD_FEEDS.append((store, str(e)[:60]))
         continue
 
     remaining_days = calculate_remaining_days(data)
@@ -136,7 +148,11 @@ for store, url in CATALOGS.items():
                     if store_count % 50 == 0:
                         print(f"   ... {store_count} products")
 
-    print(f"   ✅ {store}: {store_count} products")
+    if store_count == 0:
+        print(f"   ⚠️  {store}: 0 products — feed loaded but contained nothing")
+        EMPTY_FEEDS.append(store)
+    else:
+        print(f"   ✅ {store}: {store_count} products")
     total_products += store_count
 
 # ---------------- SAVE ----------------
@@ -153,3 +169,17 @@ print(f"Image Size: {PRODUCT_IMAGE_SIZE[0]}x{PRODUCT_IMAGE_SIZE[1]}px")
 print(f"Image Quality: {IMAGE_QUALITY}%")
 print(f"Output File: {OUTPUT_FILE}")
 print(f"{'=' * 60}")
+
+if DEAD_FEEDS or EMPTY_FEEDS:
+    print()
+    print("⚠️  CATALOG URLS NEED REFRESHING")
+    print("   The URLs in CATALOGS have week numbers baked in (uge-37, au38…)")
+    print("   and expire. Get fresh ones from each store's online avis.")
+    for store, err in DEAD_FEEDS:
+        print(f"   ✗ {store}: {err}")
+    for store in EMPTY_FEEDS:
+        print(f"   ∅ {store}: feed loaded but produced no products")
+
+if total_products == 0:
+    print("\n❌ No products at all — every catalog URL is stale.")
+    raise SystemExit(1)

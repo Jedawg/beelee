@@ -31,6 +31,27 @@ DELAY         = 0.12    # seconds between OFF requests (their fair-use guidance)
 MAX_LOOKUPS   = 2000    # cap per run so a nightly job stays bounded
 # ──────────────────────────────────────────────
 
+
+# ── Excel-safe text ─────────────────────────────────────────────────────
+# openpyxl rejects the whole workbook if any cell holds a control character.
+ILLEGAL_XLSX = re.compile(r"[\000-\010\013\014\016-\037]")
+
+def xlsx_safe(v, limit=32000):
+    """Strip characters Excel can't store. Non-strings pass through."""
+    if not isinstance(v, str):
+        return v
+    v = ILLEGAL_XLSX.sub("", v)
+    v = v.replace("\r\n", "\n").replace("\r", "\n").strip()
+    return v[:limit] if len(v) > limit else v
+
+
+def clean_df_for_excel(df):
+    """Apply xlsx_safe to every object/string column."""
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].map(xlsx_safe)
+    return df
+
 OFF_URL = "https://world.openfoodfacts.org/api/v2/product/{}.json"
 FIELDS  = ",".join([
     "product_name", "nutriscore_grade", "nova_group", "ecoscore_grade",
@@ -238,6 +259,7 @@ for idx, row in df.iterrows():
         df.at[idx, "nutriscore"] = grade
         calculated += 1
 
+df = clean_df_for_excel(df)
 df.to_excel(PRODUCTS_FILE, index=False)
 mb = os.path.getsize(PRODUCTS_FILE) / 1024 / 1024
 

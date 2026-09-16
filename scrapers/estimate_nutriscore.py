@@ -44,6 +44,27 @@ MIN_SUB_SAMPLE = 3      # a subcategory is a strong signal, needs fewer
 NGRAM_WEIGHT   = 0.35   # how much char n-grams count vs whole words
 # ──────────────────────────────────────────────
 
+
+# ── Excel-safe text ─────────────────────────────────────────────────────
+# openpyxl rejects the whole workbook if any cell holds a control character.
+ILLEGAL_XLSX = re.compile(r"[\000-\010\013\014\016-\037]")
+
+def xlsx_safe(v, limit=32000):
+    """Strip characters Excel can't store. Non-strings pass through."""
+    if not isinstance(v, str):
+        return v
+    v = ILLEGAL_XLSX.sub("", v)
+    v = v.replace("\r\n", "\n").replace("\r", "\n").strip()
+    return v[:limit] if len(v) > limit else v
+
+
+def clean_df_for_excel(df):
+    """Apply xlsx_safe to every object/string column."""
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].map(xlsx_safe)
+    return df
+
 GRADES = ["A", "B", "C", "D", "E"]
 
 # Words that say nothing about nutrition — packaging, origin, marketing
@@ -201,7 +222,7 @@ for i in labeled_idx:
     g = df.at[i, "nutriscore"]
     cat_grades[df.at[i, "category"]].append(g)
     sub = df.at[i, "subcategory"]
-    if sub:
+    if isinstance(sub, str) and sub.strip():
         sub_grades[(df.at[i, "category"], sub)].append(g)
 
 cat_median = {c: median_grade(g) for c, g in cat_grades.items() if len(g) >= MIN_CAT_SAMPLE}
@@ -251,7 +272,8 @@ for n, i in enumerate(unlabeled_idx):
 
     # Fall back to priors when the match is weak
     if grade is None or conf < MIN_CONF:
-        prior = sub_median.get((cat, sub)) if sub else None
+        has_sub = isinstance(sub, str) and sub.strip()
+        prior = sub_median.get((cat, sub)) if has_sub else None
         if prior:
             grade, conf, source = prior, 0.25, "subcategory"
             by_subcat += 1
@@ -278,6 +300,7 @@ for n, i in enumerate(unlabeled_idx):
 # Numeric confidence column so sorting works
 df["nutriscore_confidence"] = pd.to_numeric(df["nutriscore_confidence"], errors="coerce")
 
+df = clean_df_for_excel(df)
 df.to_excel(PRODUCTS_FILE, index=False)
 
 # ── Report ──
