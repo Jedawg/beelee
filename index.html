@@ -2,103 +2,119 @@
 <html lang="da">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <meta name="theme-color" content="#ffffff">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Beelee">
   <link rel="manifest" href="./manifest.json">
-  <link rel="apple-touch-icon" href="./icon-192.png">
   <title>Beelee</title>
 
   <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
+    if('serviceWorker' in navigator){
+      window.addEventListener('load',()=>{
         navigator.serviceWorker.register('/service-worker.js')
-          .then(() => console.log('SW ok'))
-          .catch(() => {});
+          .then(()=>console.log('SW ok')).catch(()=>{});
       });
     }
   </script>
 
   <script>
-    (function () {
-      if (typeof window === 'undefined') return;
-      const DB_NAME = 'BeeleeProductsDB', DB_VERSION = 1, STORE = 'products';
-      window.ProductDB = {
-        db: null,
-        async init() {
-          if (this.db) return this.db;
-          return new Promise((res, rej) => {
-            const r = indexedDB.open(DB_NAME, DB_VERSION);
-            r.onerror = () => rej(r.error);
-            r.onsuccess = () => { this.db = r.result; res(this.db); };
-            r.onupgradeneeded = (e) => {
-              const db = e.target.result;
-              if (!db.objectStoreNames.contains(STORE)) {
-                const os = db.createObjectStore(STORE, { keyPath: 'id' });
-                os.createIndex('category', 'category', { unique: false });
-                os.createIndex('store', 'store', { unique: false });
+    (function(){
+      if(typeof window==='undefined')return;
+      const DB='BeeleeProductsDB',V=2,ST='products';
+      window.ProductDB={
+        db:null,
+        async init(){
+          if(this.db)return this.db;
+          return new Promise((res,rej)=>{
+            const r=indexedDB.open(DB,V);
+            r.onerror=()=>rej(r.error);
+            r.onsuccess=()=>{this.db=r.result;res(this.db);};
+            r.onupgradeneeded=e=>{
+              const db=e.target.result;
+              if(!db.objectStoreNames.contains(ST)){
+                const os=db.createObjectStore(ST,{keyPath:'id'});
+                os.createIndex('category','category',{unique:false});
+                os.createIndex('subcategory','subcategory',{unique:false});
+                os.createIndex('store','store',{unique:false});
               }
             };
           });
         },
-        async saveProducts(products) {
-          const tx = this.db.transaction(STORE, 'readwrite');
-          const os = tx.objectStore(STORE);
-          os.clear();
-          for (const p of products) os.put(p);
-          return new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+        async saveProducts(ps){
+          const tx=this.db.transaction(ST,'readwrite'),os=tx.objectStore(ST);
+          os.clear();for(const p of ps)os.put(p);
+          return new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});
         },
-        async count() {
-          const tx = this.db.transaction(STORE, 'readonly');
-          return new Promise((res, rej) => {
-            const r = tx.objectStore(STORE).count();
-            r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-          });
+        async count(){
+          const tx=this.db.transaction(ST,'readonly');
+          return new Promise((res,rej)=>{const r=tx.objectStore(ST).count();r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});
         },
-        async search({ searchTerm='', category=null, stores=null, sortOrder='asc', limit=100 }) {
-          const tx = this.db.transaction(STORE, 'readonly');
-          return new Promise((res, rej) => {
-            const r = tx.objectStore(STORE).getAll();
-            r.onsuccess = () => {
-              let all = r.result.filter(p => {
-                const ms  = !searchTerm || p.title.toLowerCase().includes(searchTerm.toLowerCase());
-                const mc  = !category   || p.category === category;
-                const mst = !stores     || !stores.length || stores.includes(p.store);
-                return ms && mc && mst;
+        async search({searchTerm='',category=null,subcategory=null,stores=null,sortOrder='asc',limit=100}={}){
+          const tx=this.db.transaction(ST,'readonly');
+          return new Promise((res,rej)=>{
+            const r=tx.objectStore(ST).getAll();
+            r.onsuccess=()=>{
+              let all=r.result.filter(p=>{
+                const ms=!searchTerm||p.title.toLowerCase().includes(searchTerm.toLowerCase());
+                const mc=!category||p.category===category;
+                const msub=!subcategory||p.subcategory===subcategory;
+                const mst=!stores||!stores.length||stores.includes(p.store);
+                return ms&&mc&&msub&&mst;
               });
-              all.sort((a,b) => sortOrder==='asc' ? a.price-b.price : b.price-a.price);
-              res(all.slice(0, limit));
+              all.sort((a,b)=>sortOrder==='asc'?a.price-b.price:b.price-a.price);
+              res(all.slice(0,limit));
             };
-            r.onerror = () => rej(r.error);
+            r.onerror=()=>rej(r.error);
           });
         },
-        async getByIds(ids) {
-          const tx = this.db.transaction(STORE, 'readonly');
-          const os = tx.objectStore(STORE);
-          return Promise.all(ids.map(id => new Promise(res => {
-            const r = os.get(id); r.onsuccess = () => res(r.result||null); r.onerror = () => res(null);
+        async getByIds(ids){
+          const tx=this.db.transaction(ST,'readonly'),os=tx.objectStore(ST);
+          return Promise.all(ids.map(id=>new Promise(res=>{
+            const r=os.get(id);r.onsuccess=()=>res(r.result||null);r.onerror=()=>res(null);
           })));
         },
-        async getCategories() {
-          const tx = this.db.transaction(STORE, 'readonly');
-          const cats = new Set();
-          return new Promise((res, rej) => {
-            const r = tx.objectStore(STORE).index('category').openCursor();
-            r.onsuccess = e => { const c=e.target.result; if(c){cats.add(c.value.category);c.continue();}else res([...cats].filter(Boolean).sort()); };
-            r.onerror = () => rej(r.error);
+        async getOffers(limit=20){
+          const all=await this.search({searchTerm:'',limit:2000});
+          return all.filter(p=>p.remainingDays!=null).slice(0,limit);
+        },
+        async getCategories(){
+          const tx=this.db.transaction(ST,'readonly'),cats=new Set();
+          return new Promise((res,rej)=>{
+            const r=tx.objectStore(ST).index('category').openCursor();
+            r.onsuccess=e=>{const c=e.target.result;if(c){cats.add(c.value.category);c.continue();}else res([...cats].filter(Boolean).sort());};
+            r.onerror=()=>rej(r.error);
           });
         },
-        async getStores() {
-          const tx = this.db.transaction(STORE, 'readonly');
-          const stores = new Set();
-          return new Promise((res, rej) => {
-            const r = tx.objectStore(STORE).index('store').openCursor();
-            r.onsuccess = e => { const c=e.target.result; if(c){stores.add(c.value.store);c.continue();}else res([...stores].filter(Boolean).sort()); };
-            r.onerror = () => rej(r.error);
+        async getSubcategories(category){
+          const tx=this.db.transaction(ST,'readonly');
+          return new Promise((res,rej)=>{
+            const r=tx.objectStore(ST).getAll();
+            r.onsuccess=()=>{
+              const counts={};
+              r.result.forEach(p=>{
+                if(category&&p.category!==category)return;
+                const s=p.subcategory;
+                if(!s)return;
+                counts[s]=(counts[s]||0)+1;
+              });
+              res(Object.entries(counts)
+                .filter(([,n])=>n>=3)
+                .sort((a,b)=>b[1]-a[1])
+                .map(([name,count])=>({name,count})));
+            };
+            r.onerror=()=>rej(r.error);
           });
-        }
+        },
+        async getStores(){
+          const tx=this.db.transaction(ST,'readonly'),stores=new Set();
+          return new Promise((res,rej)=>{
+            const r=tx.objectStore(ST).index('store').openCursor();
+            r.onsuccess=e=>{const c=e.target.result;if(c){stores.add(c.value.store);c.continue();}else res([...stores].filter(Boolean).sort());};
+            r.onerror=()=>rej(r.error);
+          });
+        },
       };
     })();
   </script>
@@ -110,169 +126,44 @@
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
   <style>
-    * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
-    body {
-      margin: 0; padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
-      background: #F2F2F7;
-      -webkit-font-smoothing: antialiased;
+    *{-webkit-tap-highlight-color:transparent;box-sizing:border-box;}
+    body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;background:#F2F2F7;-webkit-font-smoothing:antialiased;}
+    #root{width:100%;min-height:100vh;}
+    :root{
+      --bg:#F2F2F7;--surface:#FFFFFF;--blue:#3478F6;
+      --label:#000;--label2:#3C3C43;--label3:#8E8E93;--label4:#C7C7CC;
+      --sep:rgba(60,60,67,.18);--green:#34C759;--red:#FF3B30;--orange:#FF9500;
     }
-    #root { width: 100%; min-height: 100vh; }
-
-    /* Things 3 colour tokens */
-    :root {
-      --bg:        #F2F2F7;
-      --surface:   #FFFFFF;
-      --blue:      #3478F6;
-      --label:     #000000;
-      --label2:    #3C3C43;
-      --label3:    #8E8E93;
-      --label4:    #C7C7CC;
-      --sep:       rgba(60,60,67,0.18);
-      --sep-light: rgba(60,60,67,0.10);
-      --red:       #FF3B30;
-      --orange:    #FF9500;
-      --yellow:    #FFCC00;
-      --green:     #34C759;
-    }
-
-    /* Animations */
-    @keyframes spin    { to { transform: rotate(360deg); } }
-    @keyframes fadeIn  { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
-    @keyframes popIn   { 0%{transform:scale(.8);opacity:0} 60%{transform:scale(1.15)} 100%{transform:scale(1);opacity:1} }
-    .fade-in  { animation: fadeIn  .22s ease forwards; }
-    .pop-in   { animation: popIn   .25s cubic-bezier(.34,1.56,.64,1) forwards; }
-    .spin-ani { animation: spin .7s linear infinite; }
-
-    /* Things 3-style scrollbar */
-    ::-webkit-scrollbar { width: 4px; height: 4px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--label4); border-radius: 2px; }
-
-    /* Bottom safe area */
-    .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 16px); }
-
-    /* Smooth press feedback */
-    button { cursor: pointer; border: none; background: none; padding: 0; }
-    button:active { opacity: .65; transition: opacity .08s; }
-
-    /* Things 3 list row separator */
-    .t3-row + .t3-row { border-top: 1px solid var(--sep-light); }
-
-    /* Things 3 grouped list */
-    .t3-section {
-      background: var(--surface);
-      border-radius: 12px;
-      overflow: hidden;
-      margin-bottom: 24px;
-    }
-    .t3-section-header {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: .06em;
-      text-transform: uppercase;
-      color: var(--label3);
-      padding: 0 20px 8px;
-    }
-
-    /* Things 3-style check circle */
-    .t3-circle {
-      width: 28px; height: 28px;
-      border-radius: 50%;
-      border: 2px solid var(--label4);
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
-      transition: all .18s cubic-bezier(.34,1.56,.64,1);
-    }
-    .t3-circle.checked {
-      background: var(--blue);
-      border-color: var(--blue);
-    }
-
-    /* Search bar */
-    .t3-search {
-      background: rgba(118,118,128,.12);
-      border-radius: 10px;
-      display: flex; align-items: center;
-      gap: 6px;
-      padding: 8px 12px;
-    }
-    .t3-search input {
-      background: none; border: none; outline: none;
-      font-size: 16px; color: var(--label);
-      flex: 1; min-width: 0;
-    }
-    .t3-search input::placeholder { color: var(--label3); }
-
-    /* Store pills */
-    .store-pill {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 5px 12px;
-      border-radius: 20px;
-      font-size: 13px; font-weight: 600;
-      white-space: nowrap;
-      transition: all .15s;
-      border: 1.5px solid transparent;
-    }
-    .store-pill.active { border-color: var(--blue); }
-
-    /* Tab bar */
-    .t3-tabbar {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      background: rgba(255,255,255,.88);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border-top: 1px solid var(--sep-light);
-      display: flex;
-      z-index: 100;
-    }
-    .t3-tab {
-      flex: 1; display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      padding: 10px 0 4px;
-      gap: 3px;
-      font-size: 10px; font-weight: 500;
-      color: var(--label3);
-      transition: color .15s;
-    }
-    .t3-tab.active { color: var(--blue); }
-    .t3-tab svg { width: 24px; height: 24px; }
-
-    /* Badge */
-    .badge {
-      position: absolute; top: 4px; right: 4px;
-      background: var(--red);
-      color: white; font-size: 10px; font-weight: 700;
-      border-radius: 10px;
-      padding: 1px 5px;
-      min-width: 18px; text-align: center;
-    }
-
-    /* Login */
-    .login-bg { background: linear-gradient(160deg, #1C1C1E 0%, #2C2C2E 100%); }
-    .login-field {
-      width: 100%; background: rgba(255,255,255,.08);
-      border: 1px solid rgba(255,255,255,.15);
-      border-radius: 12px; padding: 14px 16px;
-      font-size: 16px; color: white; outline: none;
-    }
-    .login-field::placeholder { color: rgba(255,255,255,.4); }
-
-    /* Quantity stepper */
-    .stepper-btn {
-      width: 28px; height: 28px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 16px; font-weight: 500; line-height: 1;
-    }
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+    @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    .spin{display:inline-block;width:18px;height:18px;border:2px solid #e5e7eb;border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;}
+    ::-webkit-scrollbar{display:none}
+    .t3-search{background:rgba(118,118,128,.12);border-radius:10px;display:flex;align-items:center;gap:6px;padding:8px 12px;}
+    .t3-search input{background:none;border:none;outline:none;font-size:16px;color:var(--label);flex:1;min-width:0;}
+    .t3-search input::placeholder{color:var(--label3);}
+    .t3-row+.t3-row{border-top:1px solid rgba(60,60,67,.08);}
+    .tabbar{position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:.5px solid rgba(0,0,0,.1);display:flex;z-index:200;padding-bottom:env(safe-area-inset-bottom,0);}
+    .tab{flex:1;display:flex;flex-direction:column;align-items:center;padding:10px 0 4px;gap:2px;font-size:10px;font-weight:500;color:var(--label3);border:none;background:none;cursor:pointer;transition:color .15s;}
+    .tab.active{color:var(--blue);}
+    .tab svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+    .chip{display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:20px;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer;border:1.5px solid transparent;transition:all .15s;}
+    .slide-panel{position:fixed;inset:0;z-index:300;background:#F2F2F7;animation:slideIn .25s ease;}
+    .bottom-sheet-overlay{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;}
+    .bottom-sheet{background:#F2F2F7;border-radius:16px 16px 0 0;width:100%;max-height:85vh;overflow-y:auto;animation:slideUp .25s ease;padding-bottom:env(safe-area-inset-bottom,20px);}
+    .price-bar-track{height:6px;background:#F2F2F7;border-radius:3px;overflow:hidden;}
+    .price-bar-fill{height:100%;border-radius:3px;transition:width .4s ease;}
+    button{cursor:pointer;}
+    .add-circle{width:28px;height:28px;border-radius:50%;border:2px solid var(--label4);background:transparent;display:flex;align-items:center;justify-content:center;transition:all .2s cubic-bezier(.34,1.56,.64,1);flex-shrink:0;}
+    .add-circle.in{background:var(--blue);border-color:var(--blue);}
+    .savings-hero{background:linear-gradient(135deg,#1b5e20,#2e7d32);border-radius:14px;padding:16px;color:#fff;margin:0 16px 16px;}
   </style>
 </head>
 <body>
   <div id="root">
     <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#1C1C1E">
-      <div style="text-align:center">
-        <div style="font-size:52px;margin-bottom:12px">🐝</div>
-        <p style="color:rgba(255,255,255,.5);font-size:15px">Indlæser...</p>
-      </div>
+      <div style="text-align:center"><div style="font-size:52px;margin-bottom:12px">🐝</div><p style="color:rgba(255,255,255,.4);font-size:15px">Indlæser...</p></div>
     </div>
   </div>
 
@@ -282,401 +173,634 @@ const { useState, useEffect, useCallback, useMemo, useRef } = React;
 const API_URL  = 'https://beelee-backend.onrender.com';
 const DATA_URL = 'https://raw.githubusercontent.com/Jedawg/beelee/main/data/products.xlsx';
 
-/* ─────────────────────────────────────────
-   Store colour map (dot + label colour)
-───────────────────────────────────────── */
 const STORE_META = {
-  'Rema1000':               { dot:'#003D8F', bg:'#E8F0FB', tx:'#003D8F', name:'Rema 1000' },
-  'Netto':                  { dot:'#F9C200', bg:'#FEF8D9', tx:'#7A5F00', name:'Netto' },
-  'Lidl':                   { dot:'#EF3340', bg:'#FDECEA', tx:'#B00020', name:'Lidl' },
-  'Føtex':                  { dot:'#0046A0', bg:'#E8EFF9', tx:'#0046A0', name:'Føtex' },
-  'Meny':                   { dot:'#C8102E', bg:'#FCEDEF', tx:'#8B0B1F', name:'Meny' },
-  'Brugsen':                { dot:'#E30613', bg:'#FDECEA', tx:'#9A0007', name:'Brugsen' },
-  'SuperBrugsen & Kvickly': { dot:'#E30613', bg:'#FDECEA', tx:'#9A0007', name:'SuperBrugsen' },
-  'Bilka':                  { dot:'#004FA3', bg:'#E8EFF9', tx:'#003570', name:'Bilka' },
-  'Spar':                   { dot:'#007A4D', bg:'#E5F4EC', tx:'#004D2E', name:'Spar' },
-  'Min Kobmand':            { dot:'#2D5F2D', bg:'#E5F4EC', tx:'#1A3D1A', name:'Min Købmand' },
-  '365':                    { dot:'#4CAF50', bg:'#E8F5E9', tx:'#2E7D32', name:'365 Discount' },
+  'Rema1000':              {dot:'#003D8F',bg:'#E8F0FB',tx:'#003D8F',name:'REMA 1000'},
+  'Netto':                 {dot:'#F9C200',bg:'#FEF8D9',tx:'#7A5F00',name:'NETTO'},
+  'Lidl':                  {dot:'#EF3340',bg:'#FDECEA',tx:'#B00020',name:'LIDL'},
+  'Føtex':                 {dot:'#0046A0',bg:'#E8EFF9',tx:'#0046A0',name:'FØTEX'},
+  'Meny':                  {dot:'#C8102E',bg:'#FCEDEF',tx:'#8B0B1F',name:'MENY'},
+  'Brugsen':               {dot:'#E30613',bg:'#FDECEA',tx:'#9A0007',name:'BRUGSEN'},
+  'SuperBrugsen & Kvickly':{dot:'#E30613',bg:'#FDECEA',tx:'#9A0007',name:'SUPERBRUGSEN'},
+  'Bilka':                 {dot:'#004FA3',bg:'#E8EFF9',tx:'#003570',name:'BILKA'},
+  'Spar':                  {dot:'#007A4D',bg:'#E5F4EC',tx:'#004D2E',name:'SPAR'},
+  'Min Kobmand':           {dot:'#2D5F2D',bg:'#E5F4EC',tx:'#1A3D1A',name:'MIN KØBMAND'},
+  '365':                   {dot:'#4CAF50',bg:'#E8F5E9',tx:'#2E7D32',name:'365 DISCOUNT'},
 };
-const sm = s => STORE_META[s] || { dot:'#8E8E93', bg:'#F2F2F7', tx:'#3C3C43', name: s||'Ukendt' };
+const sm = s => STORE_META[s]||{dot:'#8E8E93',bg:'#F2F2F7',tx:'#3C3C43',name:(s||'').toUpperCase()};
 
-/* ─────────────────────────────────────────
-   Virtual scroll
-───────────────────────────────────────── */
-function useVS(items, ih=80, ch=520) {
-  const [st, setSt] = useState(0);
-  const ref = useRef(null);
-  const onScroll = useCallback(e => setSt(e.target.scrollTop), []);
-  const start = Math.max(0, Math.floor(st/ih)-4);
-  const end   = Math.min(items.length-1, Math.ceil((st+ch)/ih)+4);
-  return { visible:items.slice(start,end+1), offsetY:start*ih, totalH:items.length*ih, ref, onScroll };
+// ── Virtual scroll ──
+function useVS(items,ih=84,ch=520){
+  const [st,setSt]=useState(0);
+  const ref=useRef(null);
+  const onScroll=useCallback(e=>setSt(e.target.scrollTop),[]);
+  const start=Math.max(0,Math.floor(st/ih)-4);
+  const end=Math.min(items.length-1,Math.ceil((st+ch)/ih)+4);
+  return{visible:items.slice(start,end+1),offsetY:start*ih,totalH:items.length*ih,ref,onScroll};
 }
 
-/* ─────────────────────────────────────────
-   useProducts
-───────────────────────────────────────── */
-function useProducts() {
-  const [dbReady, setDbReady]   = useState(false);
-  const [total, setTotal]       = useState(0);
-  const [loading, setLoading]   = useState(true);
-  const [updated, setUpdated]   = useState(null);
-  const [products, setProducts] = useState([]);
-  const [err, setErr]           = useState(false);
+// ── useProducts ──
+function useProducts(){
+  const [dbReady,setDbReady]=useState(false);
+  const [total,setTotal]=useState(0);
+  const [loading,setLoading]=useState(true);
+  const [updated,setUpdated]=useState(null);
+  const [products,setProducts]=useState([]);
 
-  useEffect(() => { init(); }, []);
+  useEffect(()=>{init();},[]);
 
-  async function init() {
-    try {
+  async function init(){
+    try{
       await window.ProductDB.init();
-      const n = await window.ProductDB.count();
-      if (n > 0) {
-        setTotal(n); setDbReady(true); setLoading(false);
-        setUpdated(new Date().toLocaleString('da-DK'));
-        bg();
-      } else { await dl(); }
-    } catch(e) { console.error(e); setErr(true); setLoading(false); }
+      const n=await window.ProductDB.count();
+      if(n>0){setTotal(n);setDbReady(true);setLoading(false);setUpdated(new Date().toLocaleString('da-DK'));bg();}
+      else{await dl();}
+    }catch(e){console.error(e);setLoading(false);}
   }
 
-  async function dl() {
-    try {
-      const res = await fetch(DATA_URL+'?t='+Date.now());
-      if(!res.ok) throw new Error('HTTP '+res.status);
-      const buf  = await res.arrayBuffer();
-      const wb   = XLSX.read(buf);
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-      const isIOS = /iPhone|iPod/.test(navigator.userAgent);
-      const ps = rows.slice(0, isIOS ? 1000 : rows.length).map(r => ({
-        id:           crypto.randomUUID(),
-        title:        r.title || 'Ukendt',
-        price:        Number(r.price) || 0,
-        category:     r.category || 'Andet',
-        store:        r.store || 'Ukendt',
-        imageBase64:  r.image_base64 || null,
-        remainingDays: r.remaining_days != null ? Number(r.remaining_days) : null,
+  async function dl(){
+    try{
+      const res=await fetch(DATA_URL+'?t='+Date.now());
+      if(!res.ok)throw new Error('HTTP '+res.status);
+      const buf=await res.arrayBuffer();
+      const rows=XLSX.utils.sheet_to_json(XLSX.read(buf).Sheets[XLSX.read(buf).SheetNames[0]]);
+      const isIOS=/iPhone|iPod/.test(navigator.userAgent);
+      const ps=rows.slice(0,isIOS?1000:rows.length).map(r=>({
+        id:crypto.randomUUID(),title:r.title||'Ukendt',price:Number(r.price)||0,
+        category:r.category||'Andet',subcategory:r.subcategory||'',store:r.store||'Ukendt',
+        imageBase64:r.image_base64||null,
+        remainingDays:r.remaining_days!=null?Number(r.remaining_days):null,
+        nutriscore:r.nutriscore||null,ingredients:r.ingredients||null,
+        nutriscoreSource:r.nutriscore_source||null,nutriscoreConf:r.nutriscore_confidence??null,
+        allergens:r.allergens||null,nova:r.nova||null,
+        energyKcal:r.energy_kcal??null,fat:r.fat??null,satFat:r.sat_fat??null,
+        sugars:r.sugars??null,salt:r.salt??null,fiber:r.fiber??null,protein:r.protein??null,
       }));
       await window.ProductDB.saveProducts(ps);
-      setTotal(ps.length); setDbReady(true); setLoading(false);
+      setTotal(ps.length);setDbReady(true);setLoading(false);
       setUpdated(new Date().toLocaleString('da-DK'));
-    } catch(e) { console.error(e); setErr(true); setLoading(false); }
+    }catch(e){console.error(e);setLoading(false);}
   }
+  async function bg(){try{await dl();}catch{}}
 
-  async function bg() { try { await dl(); } catch {} }
-
-  const search = useCallback(async (term, opts={}) => {
-    if(!dbReady) return;
-    const r = await window.ProductDB.search({
-      searchTerm: term,
-      category:   opts.category === 'all' ? null : opts.category,
-      stores:     opts.stores?.length ? opts.stores : null,
-      sortOrder:  opts.sortOrder || 'asc',
-      limit: 100,
+  const search=useCallback(async(term,opts={})=>{
+    if(!dbReady)return;
+    const r=await window.ProductDB.search({
+      searchTerm:term,
+      category:opts.category==='all'?null:opts.category,
+      subcategory:opts.subcategory&&opts.subcategory!=='all'?opts.subcategory:null,
+      stores:opts.stores?.length?opts.stores:null,
+      sortOrder:opts.sortOrder||'asc',
+      limit:100,
     });
     setProducts(r);
-  }, [dbReady]);
+  },[dbReady]);
 
-  const getCats   = useCallback(async () => dbReady ? window.ProductDB.getCategories() : [], [dbReady]);
-  const getStores = useCallback(async () => dbReady ? window.ProductDB.getStores()     : [], [dbReady]);
-  const getByIds  = useCallback(async ids => dbReady ? window.ProductDB.getByIds(ids)  : [], [dbReady]);
+  const getCats=useCallback(async()=>dbReady?window.ProductDB.getCategories():[]  ,[dbReady]);
+  const getSubs=useCallback(async cat=>dbReady?window.ProductDB.getSubcategories(cat==='all'?null:cat):[],[dbReady]);
+  const getStores=useCallback(async()=>dbReady?window.ProductDB.getStores():[]    ,[dbReady]);
+  const getByIds=useCallback(async ids=>dbReady?window.ProductDB.getByIds(ids):[]  ,[dbReady]);
+  const getOffers=useCallback(async()=>dbReady?window.ProductDB.getOffers(20):[]   ,[dbReady]);
 
-  return { dbReady, total, loading, updated, products, err, search, getCats, getStores, getByIds, refresh: dl };
+  return{dbReady,total,loading,updated,products,search,getCats,getSubs,getStores,getByIds,getOffers,refresh:dl};
 }
 
-/* ─────────────────────────────────────────
-   useBasket
-───────────────────────────────────────── */
-function useBasket() {
-  const [basket, setBasket] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('beelee_basket')||'[]'); } catch { return []; }
-  });
-  useEffect(() => { localStorage.setItem('beelee_basket', JSON.stringify(basket)); }, [basket]);
-
-  const add    = useCallback(id => setBasket(prev => {
-    const x = prev.find(i=>i.id===id);
-    return x ? prev.map(i=>i.id===id?{...i,qty:i.qty+1}:i) : [...prev,{id,qty:1}];
-  }), []);
-  const remove = useCallback(id => setBasket(prev=>prev.filter(i=>i.id!==id)), []);
-  const setQty = useCallback((id,q) => q<=0 ? remove(id) : setBasket(prev=>prev.map(i=>i.id===id?{...i,qty:q}:i)), [remove]);
-  const clear  = useCallback(() => setBasket([]), []);
-  const inBasket = useCallback(id => basket.some(i=>i.id===id), [basket]);
-  const getQty   = useCallback(id => basket.find(i=>i.id===id)?.qty || 0, [basket]);
-
-  return { basket, add, remove, setQty, clear, inBasket, getQty };
+// ── useBasket ──
+function useBasket(){
+  const [basket,setBasket]=useState(()=>{try{return JSON.parse(localStorage.getItem('beelee_basket')||'[]');}catch{return[];}});
+  useEffect(()=>{localStorage.setItem('beelee_basket',JSON.stringify(basket));},[basket]);
+  const add=useCallback(id=>setBasket(prev=>{
+    const x=prev.find(i=>i.id===id);
+    return x?prev.map(i=>i.id===id?{...i,qty:i.qty+1}:i):[...prev,{id,qty:1}];
+  }),[]);
+  const remove=useCallback(id=>setBasket(prev=>prev.filter(i=>i.id!==id)),[]);
+  const setQty=useCallback((id,q)=>q<=0?remove(id):setBasket(prev=>prev.map(i=>i.id===id?{...i,qty:q}:i)),[remove]);
+  const clear=useCallback(()=>setBasket([]),[]);
+  const inBasket=useCallback(id=>basket.some(i=>i.id===id),[basket]);
+  const getQty=useCallback(id=>basket.find(i=>i.id===id)?.qty||0,[basket]);
+  return{basket,add,remove,setQty,clear,inBasket,getQty};
 }
 
-/* ─────────────────────────────────────────
-   LOGIN
-───────────────────────────────────────── */
-function LoginScreen({ onLogin }) {
-  const [u, setU]     = useState(()=>localStorage.getItem('beelee_rem')||'');
-  const [p, setP]     = useState('');
-  const [rem, setRem] = useState(!!localStorage.getItem('beelee_rem'));
-  const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const login = async () => {
+// ── LOGIN ──
+function LoginScreen({onLogin}){
+  const [u,setU]=useState(()=>localStorage.getItem('beelee_rem')||'');
+  const [p,setP]=useState('');
+  const [rem,setRem]=useState(!!localStorage.getItem('beelee_rem'));
+  const [err,setErr]=useState('');
+  const [busy,setBusy]=useState(false);
+  const login=async()=>{
     if(busy||!u.trim()||!p.trim()){setErr('Udfyld alle felter');return;}
-    setBusy(true); setErr('');
-    try {
-      const res  = await fetch(`${API_URL}/api/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.trim(),password:p.trim()})});
-      const data = await res.json();
-      if(!res.ok) throw new Error(data.error||'Login fejlede');
-      localStorage.setItem('beelee_token', data.token);
-      localStorage.setItem('beelee_user', JSON.stringify(data.user));
-      if(rem) localStorage.setItem('beelee_rem', u.trim());
-      else    localStorage.removeItem('beelee_rem');
+    setBusy(true);setErr('');
+    try{
+      const res=await fetch(`${API_URL}/api/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.trim(),password:p.trim()})});
+      const data=await res.json();
+      if(!res.ok)throw new Error(data.error||'Login fejlede');
+      localStorage.setItem('beelee_token',data.token);
+      localStorage.setItem('beelee_user',JSON.stringify(data.user));
+      if(rem)localStorage.setItem('beelee_rem',u.trim());
+      else localStorage.removeItem('beelee_rem');
       onLogin(data.user);
-    } catch(e){setErr(e.message); setBusy(false);}
+    }catch(e){setErr(e.message);setBusy(false);}
   };
-
-  return (
-    <div className="login-bg" style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
+  return(
+    <div style={{minHeight:'100vh',background:'linear-gradient(160deg,#1C1C1E,#2C2C2E)',display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
       <div style={{width:'100%',maxWidth:360}}>
-
-        {/* Logo */}
         <div style={{textAlign:'center',marginBottom:40}}>
           <div style={{fontSize:64,marginBottom:8}}>🐝</div>
           <h1 style={{color:'white',fontSize:32,fontWeight:700,margin:0,letterSpacing:'-.5px'}}>Beelee</h1>
           <p style={{color:'rgba(255,255,255,.45)',fontSize:15,margin:'6px 0 0'}}>Smart indkøb i Danmark</p>
         </div>
-
-        {/* Fields */}
         <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:16}}>
-          <input className="login-field" type="text" placeholder="Brugernavn" value={u}
-            onChange={e=>setU(e.target.value)} onKeyDown={e=>e.key==='Enter'&&login()}
-            autoCapitalize="none" autoCorrect="off" />
-          <input className="login-field" type="password" placeholder="Adgangskode" value={p}
-            onChange={e=>setP(e.target.value)} onKeyDown={e=>e.key==='Enter'&&login()} />
+          <input style={{width:'100%',background:'rgba(255,255,255,.08)',border:'1px solid rgba(255,255,255,.15)',borderRadius:12,padding:'14px 16px',fontSize:16,color:'white',outline:'none'}}
+            type="text" placeholder="Brugernavn" value={u} onChange={e=>setU(e.target.value)}
+            onKeyDown={e=>e.key==='Enter'&&login()} autoCapitalize="none" autoCorrect="off"/>
+          <input style={{width:'100%',background:'rgba(255,255,255,.08)',border:'1px solid rgba(255,255,255,.15)',borderRadius:12,padding:'14px 16px',fontSize:16,color:'white',outline:'none'}}
+            type="password" placeholder="Adgangskode" value={p} onChange={e=>setP(e.target.value)}
+            onKeyDown={e=>e.key==='Enter'&&login()}/>
         </div>
-
-        {/* Remember me */}
         <label style={{display:'flex',alignItems:'center',gap:8,color:'rgba(255,255,255,.6)',fontSize:14,marginBottom:20,cursor:'pointer'}}>
-          <input type="checkbox" checked={rem} onChange={e=>setRem(e.target.checked)} style={{width:16,height:16,accentColor:'#3478F6'}} />
+          <input type="checkbox" checked={rem} onChange={e=>setRem(e.target.checked)} style={{width:16,height:16,accentColor:'#3478F6'}}/>
           Husk mig
         </label>
-
-        {err && <p style={{color:'#FF453A',fontSize:14,marginBottom:12,textAlign:'center'}}>{err}</p>}
-
-        {/* Login button */}
-        <button type="button" onClick={login} disabled={busy} style={{
-          width:'100%',padding:'16px',borderRadius:14,
-          background:'#3478F6',color:'white',
-          fontSize:17,fontWeight:600,letterSpacing:'-.2px',
-          opacity:busy?.6:1,transition:'opacity .15s'
-        }}>
-          {busy
-            ? <span style={{display:'inline-block',width:18,height:18,border:'2px solid rgba(255,255,255,.4)',borderTopColor:'white',borderRadius:'50%'}} className="spin-ani"></span>
-            : 'Log ind'
-          }
+        {err&&<p style={{color:'#FF453A',fontSize:14,marginBottom:12,textAlign:'center'}}>{err}</p>}
+        <button type="button" onClick={login} disabled={busy}
+          style={{width:'100%',padding:16,borderRadius:14,background:'#3478F6',color:'white',border:'none',fontSize:17,fontWeight:600,letterSpacing:'-.2px',opacity:busy?.6:1}}>
+          {busy?<span className="spin"/>:'Log ind'}
         </button>
       </div>
     </div>
   );
 }
 
-/* ─────────────────────────────────────────
-   PRODUCT ROW  (Things 3 list item style)
-───────────────────────────────────────── */
-function ProductRow({ product, inBasket, onAdd, qty }) {
-  const meta = sm(product.store);
-  const [justAdded, setJustAdded] = useState(false);
+// ── SHARED COMPONENTS ──
+function StoreBadge({store,size='sm'}){
+  const c=sm(store);
+  return <span style={{background:c.bg,color:c.tx,fontSize:size==='sm'?10:12,fontWeight:700,borderRadius:5,padding:'2px 6px',display:'inline-flex',alignItems:'center',gap:3}}>
+    <span style={{width:5,height:5,borderRadius:'50%',background:c.dot,flexShrink:0}}/>
+    {c.name}
+  </span>;
+}
 
-  const handleAdd = () => {
-    onAdd(product.id);
-    if (!inBasket) { setJustAdded(true); setTimeout(()=>setJustAdded(false), 600); }
-  };
+function OkoBadge(){
+  return <span style={{background:'#E8F5E9',color:'#2E7D32',fontSize:10,fontWeight:700,borderRadius:5,padding:'2px 5px'}}>🌿 ØKO</span>;
+}
 
-  return (
-    <div className="t3-row" style={{display:'flex',alignItems:'center',gap:12,padding:'11px 16px',background:'white',minHeight:72}}>
+const NS_COLORS={A:'#038141',B:'#85BB2F',C:'#FECB02',D:'#EE8100',E:'#E63E11'};
+function NutriBadge({grade,source,size='sm'}){
+  if(!grade)return null;
+  const g=String(grade).toUpperCase();
+  const bg=NS_COLORS[g];if(!bg)return null;
+  const s=size==='sm'?16:26;
+  const est=source&&source!=='official';
+  return <span title={est?`Nutri-Score ${g} (estimeret)`:`Nutri-Score ${g}`}
+    style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:est?s+6:s,height:s,borderRadius:4,
+      background:est?'transparent':bg,color:est?bg:(g==='C'?'#3C3C43':'#fff'),
+      border:est?`1.5px dashed ${bg}`:'none',
+      fontSize:size==='sm'?10:15,fontWeight:700,flexShrink:0,letterSpacing:est?'-.5px':0}}>
+    {est?'~'+g:g}</span>;
+}
 
-      {/* Thumbnail */}
-      <div style={{width:44,height:44,borderRadius:10,overflow:'hidden',background:'#F2F2F7',flexShrink:0}}>
-        {product.imageBase64
-          ? <img src={product.imageBase64} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} loading="lazy"/>
-          : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>🛒</div>
+function NutriScale({grade}){
+  const g=String(grade||'').toUpperCase();
+  return(
+    <div style={{display:'flex',gap:3}}>
+      {['A','B','C','D','E'].map(x=>(
+        <span key={x} style={{flex:1,textAlign:'center',padding:'6px 0',borderRadius:5,background:NS_COLORS[x],color:x==='C'?'#3C3C43':'#fff',fontSize:x===g?15:12,fontWeight:700,opacity:x===g?1:.35,transform:x===g?'scale(1.08)':'none',transition:'all .2s'}}>{x}</span>
+      ))}
+    </div>
+  );
+}
+
+function AddCircle({inBasket,onAdd,qty}){
+  return(
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:2,flexShrink:0}}>
+      <button type="button" onClick={e=>{e.stopPropagation();onAdd();}}
+        className={'add-circle'+(inBasket?' in':'')}
+        style={{width:28,height:28,border:'none'}}>
+        {inBasket
+          ?<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+          :<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--label4)" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
         }
-      </div>
-
-      {/* Title + meta */}
-      <div style={{flex:1,minWidth:0}}>
-        <p style={{margin:0,fontSize:16,fontWeight:500,color:'var(--label)',lineHeight:1.3,
-          overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>
-          {product.title}
-        </p>
-        <div style={{display:'flex',alignItems:'center',gap:6,marginTop:3,flexWrap:'wrap'}}>
-          {/* Store dot + name */}
-          <span style={{display:'flex',alignItems:'center',gap:4}}>
-            <span style={{width:7,height:7,borderRadius:'50%',background:meta.dot,flexShrink:0}}></span>
-            <span style={{fontSize:13,color:'var(--label3)',fontWeight:500}}>{meta.name}</span>
-          </span>
-          {/* Category */}
-          <span style={{color:'var(--label4)',fontSize:13}}>·</span>
-          <span style={{fontSize:13,color:'var(--label3)'}}>{product.category}</span>
-          {/* Days left badge */}
-          {product.remainingDays != null && (
-            <span style={{
-              background:'#FFF3E0',color:'#E65100',
-              fontSize:11,fontWeight:700,borderRadius:6,
-              padding:'1px 6px',letterSpacing:'.02em'
-            }}>
-              🔥 {product.remainingDays}d
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Price + add circle */}
-      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6,flexShrink:0}}>
-        <span style={{fontSize:16,fontWeight:700,color:'var(--label)',letterSpacing:'-.3px'}}>
-          {product.price.toFixed(2)}<span style={{fontSize:11,fontWeight:500,color:'var(--label3)'}}>kr</span>
-        </span>
-
-        {/* Things 3-style completion circle */}
-        <button type="button" onClick={handleAdd}
-          style={{
-            width:28,height:28,borderRadius:'50%',
-            border: inBasket ? 'none' : '2px solid #C7C7CC',
-            background: inBasket ? '#3478F6' : 'transparent',
-            display:'flex',alignItems:'center',justifyContent:'center',
-            transition:'all .2s cubic-bezier(.34,1.56,.64,1)',
-            transform: justAdded ? 'scale(1.2)' : 'scale(1)',
-          }}>
-          {inBasket
-            ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C7C7CC" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-          }
-        </button>
-
-        {/* Qty badge if > 1 */}
-        {qty > 1 && (
-          <span style={{fontSize:10,fontWeight:700,color:'#3478F6',marginTop:-4}}>×{qty}</span>
-        )}
-      </div>
+      </button>
+      {qty>1&&<span style={{fontSize:9,fontWeight:700,color:'var(--blue)'}}>{qty}</span>}
     </div>
   );
 }
 
-/* ─────────────────────────────────────────
-   PRODUCTS TAB
-───────────────────────────────────────── */
-function ProductsTab({ products, dbReady, total, loading, search, getCats, getStores, basket, onAdd, inBasket, getQty }) {
-  const [term, setTerm]       = useState('');
-  const [selCat, setSelCat]   = useState('all');
-  const [selStores, setSel]   = useState([]);
-  const [sort, setSort]       = useState('asc');
-  const [cats, setCats]       = useState([]);
-  const [allStores, setAll]   = useState([]);
-  const [showFilters, setShowFilters] = useState(false);
-  const inputRef = useRef(null);
+// ── PRODUCT DETAIL PANEL ──
+function ProductDetail({product,onClose,onAdd,inBasket,qty,getByIds}){
+  const [storeComparisons,setStoreComparisons]=useState([]);
 
-  useEffect(() => {
-    if (!dbReady) return;
-    getCats().then(setCats);
-    getStores().then(setAll);
-    search('', { category:'all', stores:[], sortOrder:'asc' });
-  }, [dbReady]);
+  useEffect(()=>{
+    if(!product||!window.ProductDB)return;
+    // Find same product at other stores by searching title keywords
+    const words=product.title
+      .split(/\s+/)
+      .filter(w=>w.length>2&&!/^\d/.test(w)&&!/^øko\.?$/i.test(w))
+      .slice(0,2).join(' ');
+    if(!words)return;
+    window.ProductDB.search({searchTerm:words,limit:30}).then(results=>{
+      const storeMap={};
+      // Include current product
+      storeMap[product.store]={...product,isCurrent:true};
+      results.forEach(p=>{
+        if(p.id===product.id)return;
+        if(!storeMap[p.store]||p.price<storeMap[p.store].price)
+          storeMap[p.store]={...p,isCurrent:false};
+      });
+      const sorted=Object.values(storeMap).sort((a,b)=>a.price-b.price);
+      setStoreComparisons(sorted);
+    });
+  },[product]);
 
-  useEffect(() => {
-    if (!dbReady) return;
-    const t = setTimeout(() => search(term, { category:selCat, stores:selStores, sortOrder:sort }), 220);
-    return () => clearTimeout(t);
-  }, [term, selCat, selStores, sort, dbReady]);
+  if(!product)return null;
+  const maxPrice=storeComparisons.length?Math.max(...storeComparisons.map(p=>p.price)):product.price;
+  const minPrice=storeComparisons.length?Math.min(...storeComparisons.map(p=>p.price)):product.price;
+  const saving=(product.price-minPrice).toFixed(2);
+  const isOko=product.category==='Øko'||product.title.toUpperCase().includes('ØKO');
 
-  const toggleStore = s => setSel(prev => prev.includes(s)?prev.filter(x=>x!==s):[...prev,s]);
-
-  const { visible, offsetY, totalH, ref, onScroll } = useVS(products, 80, 500);
-
-  return (
-    <div style={{display:'flex',flexDirection:'column',gap:0}}>
-
-      {/* Search bar */}
-      <div style={{padding:'12px 16px 8px'}}>
-        <div className="t3-search">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--label3)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-          <input ref={inputRef} type="text" placeholder="Søg produkter..." value={term}
-            onChange={e=>setTerm(e.target.value)} disabled={!dbReady} />
-          {term && (
-            <button type="button" onClick={()=>setTerm('')} style={{color:'var(--label3)',fontSize:16,lineHeight:1}}>×</button>
-          )}
+  return(
+    <div className="slide-panel" style={{overflowY:'auto',paddingBottom:100}}>
+      {/* Header */}
+      <div style={{background:'rgba(242,242,247,.9)',backdropFilter:'blur(20px)',padding:'50px 16px 12px',position:'sticky',top:0,zIndex:10}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <button type="button" onClick={onClose} style={{display:'flex',alignItems:'center',gap:4,color:'var(--blue)',fontWeight:500,fontSize:16,background:'none',border:'none'}}>
+            <svg width="10" height="16" viewBox="0 0 10 18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M9 1L1 9l8 8"/></svg>
+            Tilbage
+          </button>
+          {isOko&&<OkoBadge/>}
         </div>
       </div>
 
-      {/* Store pills (horizontal scroll) */}
-      {allStores.length > 0 && (
-        <div style={{overflowX:'auto',display:'flex',gap:8,padding:'4px 16px 12px',scrollbarWidth:'none'}}>
-          <style>{`.pills-scroll::-webkit-scrollbar{display:none}`}</style>
-          <div className="pills-scroll" style={{display:'flex',gap:7,paddingBottom:2}}>
-            {allStores.map(s => {
-              const m = sm(s);
-              const active = selStores.includes(s);
-              return (
-                <button type="button" key={s} onClick={()=>toggleStore(s)}
-                  className="store-pill"
-                  style={{
-                    background: active ? m.bg : 'var(--surface)',
-                    color: active ? m.tx : 'var(--label3)',
-                    boxShadow: active ? 'none' : '0 1px 3px rgba(0,0,0,.08)',
-                    borderColor: active ? m.dot : 'transparent',
-                  }}>
-                  <span style={{width:6,height:6,borderRadius:'50%',background:m.dot,flexShrink:0}}></span>
-                  {m.name}
-                </button>
+      {/* Product header */}
+      <div style={{background:'white',padding:'20px 16px',marginBottom:1}}>
+        <div style={{display:'flex',gap:14,alignItems:'flex-start'}}>
+          <div style={{width:80,height:80,borderRadius:14,background:'#F2F2F7',flexShrink:0,overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            {product.imageBase64
+              ?<img src={product.imageBase64} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+              :<span style={{fontSize:36}}>🛒</span>}
+          </div>
+          <div style={{flex:1}}>
+            <p style={{margin:0,fontSize:18,fontWeight:600,lineHeight:1.3,color:'var(--label)'}}>{product.title}</p>
+            <div style={{marginTop:6,display:'flex',gap:4,flexWrap:'wrap'}}>
+              <StoreBadge store={product.store} size="md"/>
+              <NutriBadge grade={product.nutriscore} source={product.nutriscoreSource} size="md"/>
+              {product.remainingDays!=null&&
+                <span style={{background:'#FFF3E0',color:'#E65100',fontSize:10,fontWeight:700,borderRadius:5,padding:'2px 6px'}}>🔥 {product.remainingDays} dage</span>}
+            </div>
+            <div style={{marginTop:10,display:'flex',alignItems:'baseline',gap:8}}>
+              <span style={{fontSize:26,fontWeight:700,color:storeComparisons.length&&product.price===minPrice?'#2E7D32':'var(--label)'}}>{product.price.toFixed(2)} kr</span>
+              {storeComparisons.length>1&&product.price>minPrice&&
+                <span style={{fontSize:13,color:'#E65100',fontWeight:500}}>spar {saving} kr hos billigst</span>}
+              {storeComparisons.length>1&&product.price===minPrice&&
+                <span style={{background:'#E8F5E9',color:'#2E7D32',fontSize:12,fontWeight:700,borderRadius:20,padding:'3px 10px'}}>Billigst</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Price comparison */}
+      {storeComparisons.length>1&&(
+        <>
+          <p style={{fontSize:11,fontWeight:600,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--label3)',padding:'14px 16px 6px'}}>Sammenlign priser</p>
+          <div style={{background:'white',borderRadius:12,margin:'0 16px',padding:'4px 0',overflow:'hidden'}}>
+            {storeComparisons.map((p,i)=>{
+              const pct=maxPrice>0?(p.price/maxPrice)*100:100;
+              const isCheapest=p.price===minPrice;
+              return(
+                <div key={p.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderBottom:i<storeComparisons.length-1?'.5px solid #F2F2F7':'none'}}>
+                  <div style={{width:90,flexShrink:0}}>
+                    <StoreBadge store={p.store} size="sm"/>
+                  </div>
+                  <div style={{flex:1}}>
+                    <div className="price-bar-track">
+                      <div className="price-bar-fill" style={{width:`${pct}%`,background:isCheapest?'#2E7D32':pct>80?'#EF4444':'#F59E0B'}}/>
+                    </div>
+                  </div>
+                  <div style={{width:60,textAlign:'right',flexShrink:0}}>
+                    <span style={{fontSize:14,fontWeight:700,color:isCheapest?'#2E7D32':'var(--label)'}}>{p.price.toFixed(2)}</span>
+                    <span style={{fontSize:11,color:'var(--label3)'}}> kr</span>
+                  </div>
+                  {isCheapest&&<span style={{fontSize:9,fontWeight:700,color:'#2E7D32',flexShrink:0}}>✓</span>}
+                </div>
               );
             })}
           </div>
+        </>
+      )}
+
+      {/* Nutrition */}
+      {product.nutriscore&&(
+        <>
+          <p style={{fontSize:11,fontWeight:600,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--label3)',padding:'14px 16px 6px'}}>Nutri-Score</p>
+          <div style={{background:'white',borderRadius:12,margin:'0 16px',padding:'12px 14px'}}>
+            <NutriScale grade={product.nutriscore}/>
+            {product.energyKcal!=null&&product.nutriscoreSource==='official'&&(
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:4,marginTop:12,textAlign:'center'}}>
+                {[
+                  ['Energi',product.energyKcal,'kcal'],
+                  ['Fedt',product.fat,'g'],
+                  ['Sukker',product.sugars,'g'],
+                  ['Salt',product.salt,'g'],
+                ].map(([label,val,unit])=>(
+                  <div key={label}>
+                    <p style={{margin:0,fontSize:10,color:'var(--label3)'}}>{label}</p>
+                    <p style={{margin:'2px 0 0',fontSize:13,fontWeight:600}}>{val!=null?Number(val).toFixed(1):'–'}<span style={{fontSize:9,color:'var(--label3)',fontWeight:400}}> {unit}</span></p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {product.nutriscoreSource&&product.nutriscoreSource!=='official'?(
+              <div style={{marginTop:10,padding:'8px 10px',background:'#FFF8E1',borderRadius:8,border:'.5px solid #FFE082'}}>
+                <p style={{margin:0,fontSize:11,color:'#8D6E00',lineHeight:1.45}}>
+                  <strong>~ Estimeret score.</strong>{' '}
+                  {product.nutriscoreSource==='estimated'
+                    ? 'Beregnet ud fra lignende produkter med kendt Nutri-Score.'
+                    : 'Baseret på typisk score i denne '+(product.nutriscoreSource==='subcategory'?'underkategori':'kategori')+'.'}
+                  {product.nutriscoreConf!=null&&` Sikkerhed ${Math.round(product.nutriscoreConf*100)}%.`}
+                </p>
+              </div>
+            ):(
+              <p style={{margin:'10px 0 0',fontSize:10,color:'var(--label3)',textAlign:'center'}}>Pr. 100 g/ml · kilde: Open Food Facts</p>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Ingredients */}
+      {product.ingredients&&(
+        <>
+          <p style={{fontSize:11,fontWeight:600,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--label3)',padding:'14px 16px 6px'}}>Ingredienser</p>
+          <div style={{background:'white',borderRadius:12,margin:'0 16px',padding:'12px 14px'}}>
+            <p style={{margin:0,fontSize:13,lineHeight:1.55,color:'var(--label2)'}}>{product.ingredients}</p>
+            {product.allergens&&(
+              <p style={{margin:'10px 0 0',fontSize:12,color:'#B00020',fontWeight:500}}>⚠️ Allergener: {product.allergens}</p>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Category */}
+      <p style={{fontSize:11,fontWeight:600,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--label3)',padding:'14px 16px 6px'}}>Detaljer</p>
+      <div style={{background:'white',borderRadius:12,margin:'0 16px',padding:'10px 14px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:14,padding:'4px 0'}}>
+          <span style={{color:'var(--label3)'}}>Kategori</span>
+          <span style={{fontWeight:500}}>{product.category}</span>
+        </div>
+        {product.subcategory&&product.subcategory!==product.category&&(
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:14,padding:'4px 0',borderTop:'.5px solid #F2F2F7'}}>
+            <span style={{color:'var(--label3)'}}>Underkategori</span>
+            <span style={{fontWeight:500}}>{product.subcategory}</span>
+          </div>
+        )}
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:14,padding:'4px 0',borderTop:'.5px solid #F2F2F7'}}>
+          <span style={{color:'var(--label3)'}}>Butik</span>
+          <span style={{fontWeight:500}}>{sm(product.store).name}</span>
+        </div>
+        {storeComparisons.length>1&&(
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:14,padding:'4px 0',borderTop:'.5px solid #F2F2F7'}}>
+            <span style={{color:'var(--label3)'}}>Tilgængelig i</span>
+            <span style={{fontWeight:500}}>{storeComparisons.length} butikker</span>
+          </div>
+        )}
+      </div>
+
+      {/* Add to basket button */}
+      <div style={{position:'fixed',bottom:0,left:0,right:0,background:'rgba(255,255,255,.95)',backdropFilter:'blur(20px)',padding:'12px 16px',paddingBottom:`calc(12px + env(safe-area-inset-bottom,0px))`,borderTop:'.5px solid rgba(0,0,0,.1)'}}>
+        <button type="button" onClick={()=>{onAdd(product.id);}}
+          style={{width:'100%',padding:15,borderRadius:14,background:inBasket?'#34C759':'#3478F6',color:'white',border:'none',fontSize:16,fontWeight:600,transition:'background .2s'}}>
+          {inBasket?`✓ I kurven (${qty})`:'Tilføj til kurv'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── HOME VIEW ──
+function HomeView({dbReady,total,loading,getOffers,getCats,search,onProductTap,inBasket,onAdd,getQty,onSearch}){
+  const [offers,setOffers]=useState([]);
+  const [cats,setCats]=useState([]);
+
+  useEffect(()=>{
+    if(!dbReady)return;
+    getOffers().then(setOffers);
+    getCats().then(c=>setCats(c.filter(x=>x!=='Andet').slice(0,12)));
+  },[dbReady]);
+
+  const CATEGORY_ICONS={'Frugt og grønt':'🥕','Kød':'🥩','Fisk':'🐟','Mejeri':'🥛','Brød og kager':'🍞','Drikkevarer':'🥤','Slik og snacks':'🍫','Frost':'🧊','Morgenmad':'🥣','Kolonial':'🥫','Øko':'🌿'};
+
+  return(
+    <div style={{paddingBottom:80,paddingTop:0}}>
+      {/* Big search bar */}
+      <div style={{background:'white',padding:'12px 16px 16px'}}>
+        <div style={{fontSize:28,fontWeight:700,letterSpacing:'-.5px',color:'var(--label)',marginBottom:12}}>🐝 Beelee</div>
+        <button type="button" onClick={onSearch} style={{background:'rgba(118,118,128,.12)',borderRadius:10,display:'flex',alignItems:'center',gap:8,padding:'10px 14px',width:'100%',border:'none',textAlign:'left'}}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--label3)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <span style={{fontSize:16,color:'var(--label3)'}}>Søg produkter og priser...</span>
+        </button>
+      </div>
+
+      {/* Category chips */}
+      {dbReady&&cats.length>0&&(
+        <>
+          <p style={{fontSize:11,fontWeight:600,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--label3)',padding:'16px 16px 8px'}}>Kategorier</p>
+          <div style={{overflowX:'auto',display:'flex',gap:8,padding:'0 16px 2px',scrollbarWidth:'none'}}>
+            {[{name:'Øko',icon:'🌿'},...cats.map(c=>({name:c,icon:CATEGORY_ICONS[c]||'🛒'}))].map(cat=>(
+              <button key={cat.name} type="button"
+                onClick={()=>{search('',(cat.name==='Øko'?{category:'Øko'}:{category:cat.name}));onSearch(cat.name);}}
+                style={{display:'inline-flex',alignItems:'center',gap:6,padding:'7px 14px',borderRadius:20,background:'white',border:'.5px solid rgba(0,0,0,.1)',whiteSpace:'nowrap',fontSize:13,fontWeight:600,color:'var(--label)',flexShrink:0}}>
+                {cat.icon} {cat.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Loading state */}
+      {loading&&(
+        <div style={{display:'flex',alignItems:'center',gap:8,padding:'24px 16px',color:'var(--label3)',fontSize:14}}>
+          <span className="spin"/>{' '}Indlæser {total?`${total.toLocaleString()} produkter`:'produkter'}...
         </div>
       )}
 
-      {/* Sort + category filter row */}
-      <div style={{display:'flex',gap:8,padding:'0 16px 12px',alignItems:'center'}}>
+      {/* Tilbud section */}
+      {offers.length>0&&(
+        <>
+          <p style={{fontSize:11,fontWeight:600,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--label3)',padding:'16px 16px 8px'}}>Ugenstilbud 🔥</p>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,padding:'0 16px'}}>
+            {offers.slice(0,6).map(p=>(
+              <button key={p.id} type="button" onClick={()=>onProductTap(p)}
+                style={{background:'white',borderRadius:12,padding:12,border:'.5px solid rgba(0,0,0,.08)',textAlign:'left',display:'flex',flexDirection:'column',gap:8,cursor:'pointer'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                  <span style={{background:'#FFF3E0',color:'#E65100',fontSize:9,fontWeight:700,borderRadius:4,padding:'2px 5px'}}>{p.remainingDays}d</span>
+                  {(p.category==='Øko'||p.title.toUpperCase().includes('ØKO'))&&<OkoBadge/>}
+                </div>
+                <div style={{width:'100%',height:60,borderRadius:8,background:'#F2F2F7',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                  {p.imageBase64?<img src={p.imageBase64} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:<span style={{fontSize:24}}>🛒</span>}
+                </div>
+                <p style={{margin:0,fontSize:12,fontWeight:500,lineHeight:1.3,color:'var(--label)',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{p.title}</p>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                  <span style={{fontSize:14,fontWeight:700,color:'#2E7D32'}}>{p.price.toFixed(2)} kr</span>
+                  <StoreBadge store={p.store}/>
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {dbReady&&!loading&&(
+        <p style={{fontSize:13,color:'var(--label3)',textAlign:'center',padding:'24px 16px 8px'}}>{total.toLocaleString()} produkter klar · {updated||''}</p>
+      )}
+    </div>
+  );
+}
+
+// ── SEARCH VIEW ──
+function SearchView({dbReady,total,loading,products,search,getCats,getSubs,getStores,onProductTap,inBasket,onAdd,getQty,initialQuery,initialCategory}){
+  const [term,setTerm]=useState(initialQuery||'');
+  const [cat,setCat]=useState(initialCategory||'all');
+  const [sub,setSub]=useState('all');
+  const [subs,setSubs]=useState([]);
+  const [selStores,setSel]=useState([]);
+  const [sort,setSort]=useState('asc');
+  const [cats,setCats]=useState([]);
+  const [allStores,setAll]=useState([]);
+  const inputRef=useRef(null);
+
+  useEffect(()=>{
+    if(!dbReady)return;
+    getCats().then(c=>setCats(['all',...c]));
+    getStores().then(setAll);
+    search(initialQuery||'',{category:initialCategory||'all',subcategory:'all',stores:[],sortOrder:'asc'});
+    setTimeout(()=>inputRef.current?.focus(),100);
+  },[dbReady]);
+
+  useEffect(()=>{
+    if(!dbReady)return;
+    setSub('all');
+    getSubs(cat).then(setSubs);
+  },[cat,dbReady]);
+
+  useEffect(()=>{
+    if(!dbReady)return;
+    const t=setTimeout(()=>search(term,{category:cat,subcategory:sub,stores:selStores,sortOrder:sort}),220);
+    return()=>clearTimeout(t);
+  },[term,cat,sub,selStores,sort,dbReady]);
+
+  const toggle=s=>setSel(prev=>prev.includes(s)?prev.filter(x=>x!==s):[...prev,s]);
+  const{visible,offsetY,totalH,ref,onScroll}=useVS(products,84,480);
+
+  return(
+    <div style={{paddingBottom:80}}>
+      {/* Search bar */}
+      <div style={{background:'white',padding:'50px 16px 12px',position:'sticky',top:0,zIndex:10,backdropFilter:'blur(20px)'}}>
+        <div className="t3-search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--label3)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input ref={inputRef} type="text" placeholder="Søg produkter..." value={term} onChange={e=>setTerm(e.target.value)} disabled={!dbReady}/>
+          {term&&<button type="button" onClick={()=>setTerm('')} style={{color:'var(--label3)',background:'none',border:'none',fontSize:18,lineHeight:1}}>×</button>}
+        </div>
+      </div>
+
+      {/* Store filter chips */}
+      {allStores.length>0&&(
+        <div style={{overflowX:'auto',display:'flex',gap:6,padding:'10px 16px 6px',scrollbarWidth:'none'}}>
+          {allStores.map(s=>{
+            const c=sm(s);const active=selStores.includes(s);
+            return(
+              <button key={s} type="button" onClick={()=>toggle(s)}
+                style={{display:'inline-flex',alignItems:'center',gap:4,padding:'5px 11px',borderRadius:20,background:active?c.bg:'white',color:active?c.tx:'var(--label3)',border:active?`1.5px solid ${c.dot}`:'.5px solid rgba(0,0,0,.1)',fontSize:12,fontWeight:600,whiteSpace:'nowrap',flexShrink:0,transition:'all .15s'}}>
+                {active&&<span style={{width:5,height:5,borderRadius:'50%',background:c.dot}}/>}
+                {c.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Sort + category */}
+      <div style={{display:'flex',gap:8,padding:'6px 16px 10px'}}>
         <div style={{flex:1,position:'relative'}}>
-          <select value={selCat} onChange={e=>setSelCat(e.target.value)}
-            style={{width:'100%',padding:'7px 28px 7px 12px',borderRadius:9,border:'none',background:'rgba(118,118,128,.12)',fontSize:14,color:'var(--label)',appearance:'none',outline:'none'}}>
-            <option value="all">Alle kategorier</option>
-            {cats.map(c=><option key={c} value={c}>{c}</option>)}
+          <select value={cat} onChange={e=>setCat(e.target.value)}
+            style={{width:'100%',padding:'7px 28px 7px 12px',borderRadius:9,border:'.5px solid rgba(0,0,0,.1)',background:'white',fontSize:13,color:'var(--label)',appearance:'none',outline:'none'}}>
+            {cats.map(c=><option key={c} value={c}>{c==='all'?'Alle kategorier':c}</option>)}
           </select>
           <span style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none',color:'var(--label3)',fontSize:10}}>▼</span>
         </div>
         <button type="button" onClick={()=>setSort(o=>o==='asc'?'desc':'asc')}
-          style={{padding:'7px 12px',borderRadius:9,background:'rgba(118,118,128,.12)',fontSize:14,color:'var(--label)',fontWeight:500,whiteSpace:'nowrap'}}>
+          style={{padding:'7px 12px',borderRadius:9,background:'white',border:'.5px solid rgba(0,0,0,.1)',fontSize:13,color:'var(--label)',fontWeight:500,whiteSpace:'nowrap'}}>
           {sort==='asc'?'↑ Billigst':'↓ Dyreste'}
         </button>
-        {selStores.length > 0 && (
+        {selStores.length>0&&(
           <button type="button" onClick={()=>setSel([])}
-            style={{padding:'7px 10px',borderRadius:9,background:'#FEE2E2',color:'#DC2626',fontSize:13,fontWeight:600}}>
-            Ryd
+            style={{padding:'7px 10px',borderRadius:9,background:'#FEE2E2',color:'#DC2626',fontSize:12,fontWeight:700,border:'none'}}>
+            ✕ {selStores.length}
           </button>
         )}
       </div>
 
-      {/* Status line */}
-      {loading ? (
-        <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 16px 12px',color:'var(--label3)',fontSize:13}}>
-          <span style={{display:'inline-block',width:14,height:14,border:'2px solid #E5E5EA',borderTopColor:'#3478F6',borderRadius:'50%'}} className="spin-ani"></span>
-          Indlæser produkter...
+      {/* Subcategory chips — only when a category is selected */}
+      {cat!=='all'&&subs.length>1&&(
+        <div style={{overflowX:'auto',display:'flex',gap:6,padding:'0 16px 10px',scrollbarWidth:'none'}}>
+          <button type="button" onClick={()=>setSub('all')}
+            style={{padding:'5px 12px',borderRadius:20,background:sub==='all'?'#3478F6':'white',color:sub==='all'?'white':'var(--label2)',border:sub==='all'?'1.5px solid #3478F6':'.5px solid rgba(0,0,0,.1)',fontSize:12,fontWeight:600,whiteSpace:'nowrap',flexShrink:0}}>
+            Alle {cat}
+          </button>
+          {subs.map(s=>(
+            <button key={s.name} type="button" onClick={()=>setSub(sub===s.name?'all':s.name)}
+              style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 12px',borderRadius:20,background:sub===s.name?'#3478F6':'white',color:sub===s.name?'white':'var(--label2)',border:sub===s.name?'1.5px solid #3478F6':'.5px solid rgba(0,0,0,.1)',fontSize:12,fontWeight:600,whiteSpace:'nowrap',flexShrink:0}}>
+              {s.name}
+              <span style={{fontSize:10,fontWeight:500,opacity:.65}}>{s.count}</span>
+            </button>
+          ))}
         </div>
-      ) : dbReady && products.length > 0 && (
-        <p style={{fontSize:13,color:'var(--label3)',padding:'0 16px 10px',margin:0}}>
-          {products.length} resultater · {total.toLocaleString()} i alt
-        </p>
+      )}
+
+      {/* Status */}
+      {loading?(
+        <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 16px',color:'var(--label3)',fontSize:13}}>
+          <span className="spin"/>Indlæser...
+        </div>
+      ):dbReady&&products.length>0&&(
+        <p style={{fontSize:12,color:'var(--label3)',padding:'0 16px 8px',margin:0}}>{products.length} resultater{total?` · ${total.toLocaleString()} i alt`:''}</p>
       )}
 
       {/* Product list */}
-      {products.length > 0 ? (
-        <div className="t3-section" style={{margin:'0 16px 100px'}}>
-          <div ref={ref} onScroll={onScroll} style={{height:500,overflowY:'auto',position:'relative'}}>
+      {products.length>0?(
+        <div style={{background:'white',borderRadius:12,margin:'0 16px',overflow:'hidden'}}>
+          <div ref={ref} onScroll={onScroll} style={{height:480,overflowY:'auto',position:'relative'}}>
             <div style={{height:totalH,position:'relative'}}>
               <div style={{transform:`translateY(${offsetY}px)`,position:'absolute',width:'100%'}}>
-                {visible.map(p => (
-                  <ProductRow key={p.id} product={p}
-                    inBasket={inBasket(p.id)} qty={getQty(p.id)} onAdd={onAdd} />
-                ))}
+                {visible.map((p,i)=>{
+                  const isOko=p.category==='Øko'||p.title.toUpperCase().includes('ØKO');
+                  return(
+                    <div key={p.id} className="t3-row" style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',height:84,cursor:'pointer'}}
+                      onClick={()=>onProductTap(p)}>
+                      <div style={{width:50,height:50,borderRadius:10,background:'#F2F2F7',flexShrink:0,overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                        {p.imageBase64?<img src={p.imageBase64} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} loading="lazy"/>:<span style={{fontSize:22}}>🛒</span>}
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <p style={{margin:0,fontSize:14,fontWeight:500,color:'var(--label)',lineHeight:1.3,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>{p.title}</p>
+                        <div style={{display:'flex',alignItems:'center',gap:4,marginTop:3,flexWrap:'wrap'}}>
+                          <StoreBadge store={p.store}/>
+                          {isOko&&<OkoBadge/>}
+                          <NutriBadge grade={p.nutriscore} source={p.nutriscoreSource}/>
+                          {p.remainingDays!=null&&<span style={{background:'#FFF3E0',color:'#E65100',fontSize:9,fontWeight:700,borderRadius:4,padding:'1px 4px'}}>🔥 {p.remainingDays}d</span>}
+                        </div>
+                      </div>
+                      <div style={{textAlign:'right',flexShrink:0}}>
+                        <p style={{margin:0,fontSize:16,fontWeight:700,color:'var(--label)',letterSpacing:'-.3px'}}>{p.price.toFixed(2)}<span style={{fontSize:11,fontWeight:500,color:'var(--label3)'}}> kr</span></p>
+                        <AddCircle inBasket={inBasket(p.id)} qty={getQty(p.id)} onAdd={()=>onAdd(p.id)}/>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
         </div>
-      ) : dbReady && !loading && (
+      ):dbReady&&!loading&&(
         <div style={{textAlign:'center',padding:'60px 24px',color:'var(--label3)'}}>
-          <p style={{fontSize:40,margin:'0 0 12px'}}>🔍</p>
+          <p style={{fontSize:38,margin:'0 0 10px'}}>🔍</p>
           <p style={{fontSize:17,fontWeight:600,color:'var(--label2)',margin:'0 0 6px'}}>Ingen resultater</p>
           <p style={{fontSize:15,margin:0}}>Prøv et andet søgeord</p>
         </div>
@@ -685,122 +809,111 @@ function ProductsTab({ products, dbReady, total, loading, search, getCats, getSt
   );
 }
 
-/* ─────────────────────────────────────────
-   BASKET TAB
-───────────────────────────────────────── */
-function BasketTab({ basket, getByIds, setQty, remove, clear }) {
-  const [pMap, setPMap] = useState({});
+// ── BASKET VIEW ──
+function BasketView({basket,getByIds,setQty,remove,clear,inBasket}){
+  const [pMap,setPMap]=useState({});
+  const [optimizing,setOptimizing]=useState(false);
+  const [storeGroups,setStoreGroups]=useState({});
+  const [totalSavings,setTotalSavings]=useState(0);
 
-  useEffect(() => {
-    if (!basket.length) { setPMap({}); return; }
-    getByIds(basket.map(i=>i.id)).then(items => {
-      const m={};items.forEach(p=>{if(p)m[p.id]=p;});setPMap(m);
+  useEffect(()=>{
+    if(!basket.length){setPMap({});setStoreGroups({});return;}
+    getByIds(basket.map(i=>i.id)).then(items=>{
+      const m={};items.forEach(p=>{if(p)m[p.id]=p;});
+      setPMap(m);
+      // Group by store
+      const groups={};
+      basket.forEach(item=>{
+        const p=m[item.id];if(!p)return;
+        if(!groups[p.store])groups[p.store]={items:[],total:0};
+        groups[p.store].items.push({...item,product:p});
+        groups[p.store].total+=p.price*item.qty;
+      });
+      setStoreGroups(groups);
     });
-  }, [basket]);
+  },[basket]);
 
-  const total    = basket.reduce((s,i)=>s+(pMap[i.id]?.price||0)*i.qty, 0);
-  const itemsQty = basket.reduce((s,i)=>s+i.qty, 0);
+  const total=basket.reduce((s,i)=>s+(pMap[i.id]?.price||0)*i.qty,0);
+  const itemsQty=basket.reduce((s,i)=>s+i.qty,0);
 
-  const groups = useMemo(() => {
-    const g={};
-    basket.forEach(item => {
-      const p = pMap[item.id]; if(!p) return;
-      if(!g[p.store]) g[p.store]=[];
-      g[p.store].push({...item, product:p});
-    });
-    return g;
-  }, [basket, pMap]);
-
-  const share = () => {
-    let text='🐝 Beelee kurv\n\n';
-    Object.entries(groups).forEach(([store,items])=>{
+  const share=()=>{
+    let text='🐝 Beelee — Min indkøbsliste\n\n';
+    Object.entries(storeGroups).forEach(([store,{items,total:sub}])=>{
       text+=`📍 ${sm(store).name}\n`;
-      items.forEach(({product,qty})=>{ text+=`• ${product.title} ×${qty}  ${(product.price*qty).toFixed(2)} kr\n`; });
-      text+=`Subtotal: ${items.reduce((s,{product,qty})=>s+product.price*qty,0).toFixed(2)} kr\n\n`;
+      items.forEach(({product,qty})=>{text+=`• ${product.title} ×${qty}  ${(product.price*qty).toFixed(2)} kr\n`;});
+      text+=`Subtotal: ${sub.toFixed(2)} kr\n\n`;
     });
     text+=`TOTAL: ${total.toFixed(2)} kr`;
-    if(navigator.share) navigator.share({title:'Beelee kurv',text});
+    if(navigator.share)navigator.share({title:'Beelee kurv',text});
     else navigator.clipboard?.writeText(text).then(()=>alert('Kopieret!'));
   };
 
-  if (!basket.length) return (
+  if(!basket.length)return(
     <div style={{textAlign:'center',padding:'80px 24px',color:'var(--label3)'}}>
-      <div style={{fontSize:52,marginBottom:16}}>🛒</div>
+      <p style={{fontSize:52,margin:'0 0 16px'}}>🛒</p>
       <p style={{fontSize:20,fontWeight:600,color:'var(--label2)',margin:'0 0 8px'}}>Kurven er tom</p>
-      <p style={{fontSize:15,margin:0}}>Tilføj produkter fra søgning</p>
+      <p style={{fontSize:15,margin:0}}>Søg og tilføj produkter</p>
     </div>
   );
 
-  return (
-    <div style={{paddingBottom:120}}>
-      {/* Header */}
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 20px 16px'}}>
-        <div>
-          <p style={{margin:0,fontSize:13,color:'var(--label3)'}}>{itemsQty} varer</p>
-        </div>
-        <div style={{display:'flex',gap:8}}>
-          <button type="button" onClick={share}
-            style={{padding:'7px 14px',borderRadius:20,background:'#E8F0FB',color:'#3478F6',fontSize:14,fontWeight:600}}>
-            Del 📤
-          </button>
-          <button type="button" onClick={clear}
-            style={{padding:'7px 14px',borderRadius:20,background:'#FEE2E2',color:'#DC2626',fontSize:14,fontWeight:600}}>
-            Ryd
-          </button>
+  const storeEntries=Object.entries(storeGroups);
+
+  return(
+    <div style={{paddingBottom:140}}>
+      {/* Header summary */}
+      <div style={{background:'white',padding:'50px 16px 14px',marginBottom:1}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div>
+            <p style={{margin:0,fontSize:13,color:'var(--label3)'}}>{itemsQty} varer · {storeEntries.length} butik{storeEntries.length>1?'ker':''}</p>
+            <p style={{margin:'4px 0 0',fontSize:28,fontWeight:700,letterSpacing:'-.5px'}}>{total.toFixed(2)} kr</p>
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <button type="button" onClick={share} style={{padding:'8px 14px',borderRadius:20,background:'#E8F0FB',color:'#3478F6',fontSize:14,fontWeight:600,border:'none'}}>Del 📤</button>
+            <button type="button" onClick={clear} style={{padding:'8px 14px',borderRadius:20,background:'#FEE2E2',color:'#DC2626',fontSize:14,fontWeight:600,border:'none'}}>Ryd</button>
+          </div>
         </div>
       </div>
 
-      {/* Store groups */}
-      {Object.entries(groups).map(([store,items]) => {
-        const meta = sm(store);
-        const sub  = items.reduce((s,{product,qty})=>s+product.price*qty,0);
-        return (
-          <div key={store} style={{margin:'0 16px 20px'}}>
-            {/* Section header */}
-            <div className="t3-section-header" style={{display:'flex',alignItems:'center',gap:6,paddingLeft:4}}>
-              <span style={{width:6,height:6,borderRadius:'50%',background:meta.dot}}></span>
-              {meta.name.toUpperCase()}
-            </div>
+      {/* Smart shopping hint */}
+      {storeEntries.length>1&&(
+        <div className="savings-hero">
+          <p style={{margin:'0 0 2px',fontSize:10,opacity:.7,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:600}}>Smart shopping</p>
+          <p style={{margin:0,fontSize:22,fontWeight:700}}>Du handler i {storeEntries.length} butikker</p>
+          <p style={{margin:'3px 0 0',fontSize:13,opacity:.8}}>Kurven er optimeret per butik herunder</p>
+        </div>
+      )}
 
-            {/* Items */}
-            <div className="t3-section">
-              {items.map(({id, product, qty}) => (
-                <div key={id} className="t3-row"
-                  style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',background:'white'}}>
-                  {/* Image */}
-                  <div style={{width:40,height:40,borderRadius:8,overflow:'hidden',background:'#F2F2F7',flexShrink:0}}>
-                    {product.imageBase64
-                      ? <img src={product.imageBase64} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                      : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center'}}>🛒</div>}
+      {/* Per store groups */}
+      {storeEntries.map(([store,{items,total:sub}])=>{
+        const c=sm(store);
+        return(
+          <div key={store} style={{margin:'0 16px 16px'}}>
+            <p style={{fontSize:11,fontWeight:600,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--label3)',margin:'0 0 6px',display:'flex',alignItems:'center',gap:6}}>
+              <span style={{width:6,height:6,borderRadius:'50%',background:c.dot}}/>
+              {c.name}
+            </p>
+            <div style={{background:'white',borderRadius:12,overflow:'hidden'}}>
+              {items.map(({id,product,qty})=>(
+                <div key={id} className="t3-row" style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px'}}>
+                  <div style={{width:40,height:40,borderRadius:8,background:'#F2F2F7',flexShrink:0,overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    {product.imageBase64?<img src={product.imageBase64} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:<span>🛒</span>}
                   </div>
-                  {/* Title */}
                   <div style={{flex:1,minWidth:0}}>
-                    <p style={{margin:0,fontSize:15,fontWeight:500,color:'var(--label)',
-                      overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{product.title}</p>
-                    <p style={{margin:'2px 0 0',fontSize:13,color:'var(--label3)'}}>{product.price.toFixed(2)} kr/stk</p>
+                    <p style={{margin:0,fontSize:14,fontWeight:500,color:'var(--label)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{product.title}</p>
+                    <p style={{margin:'2px 0 0',fontSize:12,color:'var(--label3)'}}>{product.price.toFixed(2)} kr/stk</p>
                   </div>
-                  {/* Stepper */}
-                  <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-                    <button type="button" onClick={()=>setQty(id,qty-1)}
-                      className="stepper-btn" style={{background:'#F2F2F7',color:'var(--label2)'}}>−</button>
-                    <span style={{fontSize:15,fontWeight:600,width:20,textAlign:'center'}}>{qty}</span>
-                    <button type="button" onClick={()=>setQty(id,qty+1)}
-                      className="stepper-btn" style={{background:'#EEF3FE',color:'#3478F6'}}>+</button>
-                    <button type="button" onClick={()=>remove(id)} style={{marginLeft:4,color:'#C7C7CC'}}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-                    </button>
+                  <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
+                    <button type="button" onClick={()=>setQty(id,qty-1)} style={{width:26,height:26,borderRadius:'50%',background:'#F2F2F7',border:'none',color:'var(--label2)',fontSize:16,fontWeight:500,display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+                    <span style={{fontSize:14,fontWeight:600,width:18,textAlign:'center'}}>{qty}</span>
+                    <button type="button" onClick={()=>setQty(id,qty+1)} style={{width:26,height:26,borderRadius:'50%',background:'#EEF3FE',color:'#3478F6',border:'none',fontSize:16,fontWeight:500,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                    <button type="button" onClick={()=>remove(id)} style={{marginLeft:2,color:'#C7C7CC',background:'none',border:'none',fontSize:16,padding:0}}>✕</button>
                   </div>
-                  {/* Line total */}
-                  <p style={{margin:0,fontSize:15,fontWeight:700,color:'var(--label)',minWidth:56,textAlign:'right'}}>
-                    {(product.price*qty).toFixed(2)}<span style={{fontSize:11,color:'var(--label3)',fontWeight:400}}>kr</span>
-                  </p>
+                  <p style={{margin:0,fontSize:14,fontWeight:700,color:'var(--label)',minWidth:54,textAlign:'right',flexShrink:0}}>{(product.price*qty).toFixed(2)}<span style={{fontSize:11,color:'var(--label3)',fontWeight:400}}> kr</span></p>
                 </div>
               ))}
-
-              {/* Subtotal row */}
-              <div className="t3-row" style={{display:'flex',justifyContent:'space-between',padding:'10px 16px',background:'#F9F9FB'}}>
-                <span style={{fontSize:14,color:'var(--label3)',fontWeight:500}}>Subtotal</span>
-                <span style={{fontSize:14,fontWeight:700,color:'var(--label)'}}>{sub.toFixed(2)} kr</span>
+              <div style={{display:'flex',justifyContent:'space-between',padding:'10px 14px',background:'#F9F9FB',borderTop:'.5px solid #F2F2F7'}}>
+                <span style={{fontSize:13,color:'var(--label3)',fontWeight:500}}>Subtotal {c.name}</span>
+                <span style={{fontSize:13,fontWeight:700,color:'var(--label)'}}>{sub.toFixed(2)} kr</span>
               </div>
             </div>
           </div>
@@ -808,23 +921,14 @@ function BasketTab({ basket, getByIds, setQty, remove, clear }) {
       })}
 
       {/* Total footer */}
-      <div style={{
-        position:'fixed',bottom:0,left:0,right:0,
-        background:'rgba(255,255,255,.92)',
-        backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',
-        borderTop:'1px solid var(--sep-light)',
-        padding:'14px 20px',paddingBottom:'calc(14px + env(safe-area-inset-bottom,0px))',
-        zIndex:90
-      }}>
+      <div style={{position:'fixed',bottom:0,left:0,right:0,background:'rgba(255,255,255,.95)',backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',borderTop:'.5px solid rgba(0,0,0,.1)',padding:'14px 16px',paddingBottom:`calc(14px + env(safe-area-inset-bottom,0px))`,zIndex:100}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',maxWidth:640,margin:'0 auto'}}>
           <div>
             <p style={{margin:0,fontSize:13,color:'var(--label3)'}}>Total</p>
-            <p style={{margin:0,fontSize:26,fontWeight:700,color:'var(--label)',letterSpacing:'-.5px'}}>
-              {total.toFixed(2)} <span style={{fontSize:16,fontWeight:500,color:'var(--label3)'}}>kr</span>
-            </p>
+            <p style={{margin:0,fontSize:26,fontWeight:700,color:'var(--label)',letterSpacing:'-.5px'}}>{total.toFixed(2)} <span style={{fontSize:16,fontWeight:500,color:'var(--label3)'}}>kr</span></p>
           </div>
           <button type="button" onClick={share}
-            style={{padding:'14px 24px',borderRadius:14,background:'#3478F6',color:'white',fontSize:16,fontWeight:600,letterSpacing:'-.2px'}}>
+            style={{padding:'14px 24px',borderRadius:14,background:'#3478F6',color:'white',border:'none',fontSize:16,fontWeight:600,letterSpacing:'-.2px'}}>
             Del kurv 📤
           </button>
         </div>
@@ -833,101 +937,114 @@ function BasketTab({ basket, getByIds, setQty, remove, clear }) {
   );
 }
 
-/* ─────────────────────────────────────────
-   APP
-───────────────────────────────────────── */
-function App() {
-  const [tab, setTab]   = useState('products');
-  const [user, setUser] = useState(() => {
-    try { const t=localStorage.getItem('beelee_token'),u=localStorage.getItem('beelee_user'); return t&&u?JSON.parse(u):null; } catch{return null;}
+// ── APP ──
+function App(){
+  const [tab,setTab]=useState('home'); // home | search | basket
+  const [detailProduct,setDetailProduct]=useState(null);
+  const [searchQuery,setSearchQuery]=useState('');
+  const [searchCategory,setSearchCategory]=useState('all');
+  const [user,setUser]=useState(()=>{
+    try{const t=localStorage.getItem('beelee_token'),u=localStorage.getItem('beelee_user');return t&&u?JSON.parse(u):null;}catch{return null;}
   });
 
-  const { dbReady, total, loading, updated, products, err, search, getCats, getStores, getByIds, refresh } = useProducts();
-  const { basket, add, remove, setQty, clear, inBasket, getQty } = useBasket();
+  const{dbReady,total,loading,updated,products,search,getCats,getSubs,getStores,getByIds,getOffers,refresh}=useProducts();
+  const{basket,add,remove,setQty,clear,inBasket,getQty}=useBasket();
 
-  if (!user) return <LoginScreen onLogin={setUser} />;
+  if(!user)return<LoginScreen onLogin={setUser}/>;
 
-  const logout = () => { ['beelee_token','beelee_user'].forEach(k=>localStorage.removeItem(k)); setUser(null); };
-  const basketCount = basket.reduce((s,i)=>s+i.qty, 0);
+  const logout=()=>{['beelee_token','beelee_user'].forEach(k=>localStorage.removeItem(k));setUser(null);};
 
-  return (
+  const goSearch=(query='',category='all')=>{
+    setSearchQuery(query);
+    setSearchCategory(category);
+    setTab('search');
+  };
+
+  const basketCount=basket.reduce((s,i)=>s+i.qty,0);
+
+  return(
     <div style={{background:'var(--bg)',minHeight:'100vh'}}>
-
-      {/* Large title header */}
-      <div style={{
-        background:'rgba(242,242,247,.88)',
-        backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',
-        borderBottom:'1px solid var(--sep-light)',
-        padding:'52px 20px 12px',
-        position:'sticky',top:0,zIndex:50,
-      }}>
+      {/* Large title area */}
+      <div style={{background:'rgba(242,242,247,.9)',backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',borderBottom:'.5px solid rgba(0,0,0,.08)',padding:'50px 20px 10px',position:'sticky',top:0,zIndex:50}}>
         <div style={{display:'flex',alignItems:'flex-end',justifyContent:'space-between',maxWidth:640,margin:'0 auto'}}>
           <div>
-            <p style={{margin:0,fontSize:12,color:'var(--label3)',fontWeight:500,letterSpacing:'.04em',textTransform:'uppercase'}}>
-              {tab === 'products' ? 'Produkter' : 'Kurv'}
+            <p style={{margin:0,fontSize:11,color:'var(--label3)',fontWeight:600,letterSpacing:'.04em',textTransform:'uppercase'}}>
+              {tab==='home'?'Oversigt':tab==='search'?'Søg':'Din kurv'}
             </p>
-            <h1 style={{margin:'2px 0 0',fontSize:30,fontWeight:700,color:'var(--label)',letterSpacing:'-.5px',lineHeight:1.1}}>
-              {tab === 'products' ? '🐝 Beelee' : `🛒 Kurv`}
+            <h1 style={{margin:'2px 0 0',fontSize:28,fontWeight:700,color:'var(--label)',letterSpacing:'-.4px',lineHeight:1.1}}>
+              {tab==='home'?'🐝 Beelee':tab==='search'?'Søg':detailProduct?detailProduct.title.split(' ').slice(0,3).join(' '):'Kurv'}
             </h1>
           </div>
-          <div style={{display:'flex',alignItems:'center',gap:10}}>
-            {!loading && updated && (
-              <button type="button" onClick={refresh}
-                style={{width:32,height:32,borderRadius:'50%',background:'rgba(118,118,128,.12)',display:'flex',alignItems:'center',justifyContent:'center',color:'var(--label3)',fontSize:16}}>
-                ↻
-              </button>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            {tab!=='search'&&!loading&&updated&&(
+              <button type="button" onClick={refresh} style={{width:32,height:32,borderRadius:'50%',background:'rgba(118,118,128,.12)',border:'none',display:'flex',alignItems:'center',justifyContent:'center',color:'var(--label3)',fontSize:16}}>↻</button>
             )}
-            <button type="button" onClick={logout}
-              style={{fontSize:14,color:'#3478F6',fontWeight:500}}>
-              {user.name||user.id}
-            </button>
+            <button type="button" onClick={logout} style={{fontSize:13,color:'var(--blue)',fontWeight:500,background:'none',border:'none',padding:'4px 0'}}>{user.name||user.id}</button>
           </div>
         </div>
       </div>
 
       {/* Content */}
-      <div style={{maxWidth:640,margin:'0 auto',paddingTop:8}}>
-        {tab==='products' && (
-          <ProductsTab
-            products={products} dbReady={dbReady} total={total} loading={loading}
-            search={search} getCats={getCats} getStores={getStores}
-            basket={basket} onAdd={add} inBasket={inBasket} getQty={getQty}
+      <div style={{maxWidth:640,margin:'0 auto'}}>
+        {tab==='home'&&(
+          <HomeView
+            dbReady={dbReady} total={total} loading={loading} updated={updated}
+            getOffers={getOffers} getCats={getCats} search={search}
+            onProductTap={p=>{setDetailProduct(p);}}
+            inBasket={inBasket} onAdd={add} getQty={getQty}
+            onSearch={goSearch}
           />
         )}
-        {tab==='basket' && (
-          <BasketTab basket={basket} getByIds={getByIds} setQty={setQty} remove={remove} clear={clear} />
+        {tab==='search'&&(
+          <SearchView
+            dbReady={dbReady} total={total} loading={loading} products={products}
+            search={search} getCats={getCats} getSubs={getSubs} getStores={getStores}
+            onProductTap={p=>{setDetailProduct(p);}}
+            inBasket={inBasket} onAdd={add} getQty={getQty}
+            initialQuery={searchQuery} initialCategory={searchCategory}
+          />
+        )}
+        {tab==='basket'&&(
+          <BasketView
+            basket={basket} getByIds={getByIds}
+            setQty={setQty} remove={remove} clear={clear} inBasket={inBasket}
+          />
         )}
       </div>
 
-      {/* Things 3-style tab bar */}
-      <nav className="t3-tabbar safe-bottom">
-        <div style={{display:'flex',maxWidth:640,margin:'0 auto',width:'100%'}}>
+      {/* Product detail panel */}
+      {detailProduct&&(
+        <ProductDetail
+          product={detailProduct}
+          onClose={()=>setDetailProduct(null)}
+          onAdd={add} inBasket={inBasket(detailProduct.id)} qty={getQty(detailProduct.id)}
+          getByIds={getByIds}
+        />
+      )}
 
-          {/* Products tab */}
-          <button type="button" className={`t3-tab ${tab==='products'?'active':''}`} onClick={()=>setTab('products')}>
-            <svg viewBox="0 0 24 24" fill={tab==='products'?'#3478F6':'none'} stroke={tab==='products'?'#3478F6':'#8E8E93'} strokeWidth="1.8" strokeLinecap="round">
-              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
-            </svg>
+      {/* Tab bar */}
+      <nav className="tabbar">
+        <div style={{display:'flex',maxWidth:640,margin:'0 auto',width:'100%'}}>
+          <button type="button" className={`tab${tab==='home'?' active':''}`} onClick={()=>{setDetailProduct(null);setTab('home');}}>
+            <svg viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            Start
+          </button>
+          <button type="button" className={`tab${tab==='search'?' active':''}`} onClick={()=>{setDetailProduct(null);setTab('search');}}>
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
             Søg
           </button>
-
-          {/* Basket tab */}
-          <button type="button" className={`t3-tab ${tab==='basket'?'active':''}`}
-            onClick={()=>setTab('basket')} style={{position:'relative'}}>
-            <svg viewBox="0 0 24 24" fill={tab==='basket'?'#3478F6':'none'} stroke={tab==='basket'?'#3478F6':'#8E8E93'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>
-            </svg>
-            {basketCount > 0 && <span className="badge">{basketCount > 99?'99+':basketCount}</span>}
+          <button type="button" className={`tab${tab==='basket'?' active':''}`} onClick={()=>{setDetailProduct(null);setTab('basket');}} style={{position:'relative'}}>
+            <svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/></svg>
+            {basketCount>0&&<span style={{position:'absolute',top:6,right:'calc(50% - 18px)',background:'#FF3B30',color:'white',fontSize:9,fontWeight:700,borderRadius:10,padding:'1px 5px',minWidth:16,textAlign:'center'}}>{basketCount>99?'99+':basketCount}</span>}
             Kurv
           </button>
-
         </div>
       </nav>
     </div>
   );
 }
 
-ReactDOM.render(<App />, document.getElementById('root'));
+ReactDOM.render(<App/>,document.getElementById('root'));
 </script>
 </body>
 </html>
