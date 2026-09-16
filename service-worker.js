@@ -66,7 +66,12 @@ self.addEventListener('fetch', (event) => {
           caches.open(RUNTIME_CACHE).then(c => c.put(req, copy));
           return res;
         })
-        .catch(() => caches.match(req))
+        // A cache miss here returns undefined, and respondWith(undefined)
+        // throws. Always resolve to a real Response.
+        .catch(() => caches.match(req).then(hit => hit || new Response(
+          JSON.stringify({ error: 'offline' }),
+          { status: 503, headers: { 'Content-Type': 'application/json' } }
+        )))
     );
     return;
   }
@@ -85,7 +90,9 @@ self.addEventListener('fetch', (event) => {
           }
           return res;
         })
-        .catch(() => caches.open(DATA_CACHE).then(c => c.match(DATA_KEY)))
+        .catch(() => caches.open(DATA_CACHE)
+          .then(c => c.match(DATA_KEY))
+          .then(hit => hit || new Response('', { status: 503 })))
     );
     return;
   }

@@ -579,7 +579,7 @@ function ProductDetail({product,onClose,onAdd,inBasket,qty,getByIds}){
 }
 
 // ── HOME VIEW ──
-function HomeView({dbReady,total,loading,getOffers,getCats,search,onProductTap,inBasket,onAdd,getQty,onSearch}){
+function HomeView({dbReady,total,loading,updated,getOffers,getCats,search,onProductTap,inBasket,onAdd,getQty,onSearch}){
   const [offers,setOffers]=useState([]);
   const [cats,setCats]=useState([]);
 
@@ -940,6 +940,48 @@ function BasketView({basket,getByIds,setQty,remove,clear,inBasket}){
   );
 }
 
+// ── ERROR BOUNDARY ──
+// Without this, any render error unmounts the whole tree and leaves a blank
+// white page — which is exactly what a missing prop caused.
+class ErrorBoundary extends React.Component{
+  constructor(p){super(p);this.state={error:null};}
+  static getDerivedStateFromError(error){return{error};}
+  componentDidCatch(error,info){console.error('Beelee render error:',error,info);}
+  render(){
+    if(!this.state.error)return this.props.children;
+    return(
+      <div style={{minHeight:'100vh',background:'#1C1C1E',display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
+        <div style={{maxWidth:420,textAlign:'center'}}>
+          <div style={{fontSize:48,marginBottom:12}}>🐝</div>
+          <h1 style={{color:'white',fontSize:20,fontWeight:600,margin:'0 0 8px'}}>Noget gik galt</h1>
+          <p style={{color:'rgba(255,255,255,.5)',fontSize:14,margin:'0 0 16px',lineHeight:1.5}}>
+            Appen stødte på en fejl. Prøv at genindlæse — hjælper det ikke, så ryd data.
+          </p>
+          <pre style={{background:'rgba(255,255,255,.06)',color:'#FF8A80',fontSize:11,padding:12,borderRadius:8,textAlign:'left',overflow:'auto',maxHeight:140,margin:'0 0 16px'}}>
+            {String(this.state.error?.message||this.state.error)}
+          </pre>
+          <div style={{display:'flex',gap:8,justifyContent:'center'}}>
+            <button type="button" onClick={()=>location.reload()}
+              style={{padding:'11px 20px',borderRadius:12,background:'#3478F6',color:'white',border:'none',fontSize:15,fontWeight:600}}>
+              Genindlæs
+            </button>
+            <button type="button" onClick={async()=>{
+                try{
+                  indexedDB.deleteDatabase('BeeleeProductsDB');
+                  if('caches' in window){const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)));}
+                }catch(e){}
+                location.reload();
+              }}
+              style={{padding:'11px 20px',borderRadius:12,background:'rgba(255,255,255,.1)',color:'white',border:'none',fontSize:15,fontWeight:500}}>
+              Ryd data
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+}
+
 // ── APP ──
 function App(){
   const [tab,setTab]=useState('home'); // home | search | basket
@@ -1047,7 +1089,13 @@ function App(){
   );
 }
 
-ReactDOM.render(<App/>,document.getElementById('root'));
+window.addEventListener('error',e=>console.error('Beelee uncaught:',e.error||e.message));
+window.addEventListener('unhandledrejection',e=>console.error('Beelee unhandled rejection:',e.reason));
+
+ReactDOM.render(
+  <ErrorBoundary><App/></ErrorBoundary>,
+  document.getElementById('root')
+);
 </script>
 </body>
 </html>
