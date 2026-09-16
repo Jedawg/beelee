@@ -8,6 +8,11 @@ on:
   # Manual trigger from GitHub Actions tab
   workflow_dispatch:
 
+# Never let two scrape runs push at the same time
+concurrency:
+  group: beelee-scrape
+  cancel-in-progress: false
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
@@ -111,17 +116,40 @@ jobs:
           git config --local user.email "beelee-bot@users.noreply.github.com"
           git config --local user.name "Beelee Bot 🐝"
 
-          # Stage all generated data files
-          git add data/products.xlsx
-          git add data/rema1000_products.xlsx  2>/dev/null || true
-          git add data/aviser_products.xlsx    2>/dev/null || true
-          git add data/wolt_products.xlsx      2>/dev/null || true
-          git add data/off_cache.json          2>/dev/null || true
+          # The run takes ~20 min, so main may have moved while we worked.
+          # Move onto the latest remote commit BEFORE committing our data.
+          # --mixed keeps the generated files in the working tree but resets
+          # the index, so we then commit them cleanly on top of the new tip.
+          # No merge, no rebase, no binary conflicts.
+          git fetch origin main
+          git reset --mixed origin/main
 
-          # Only commit if something actually changed
+          # Stage only the files this workflow generates
+          git add -f data/products.xlsx           2>/dev/null || true
+          git add -f data/rema1000_products.xlsx  2>/dev/null || true
+          git add -f data/aviser_products.xlsx    2>/dev/null || true
+          git add -f data/wolt_products.xlsx      2>/dev/null || true
+          git add -f data/off_cache.json          2>/dev/null || true
+
           if git diff --staged --quiet; then
             echo "No changes — products are up to date"
-          else
-            git commit -m "🐝 Auto-update products $(date +'%Y-%m-%d %H:%M UTC')"
-            git push
+            exit 0
           fi
+
+          git commit -m "🐝 Auto-update products $(date +'%Y-%m-%d %H:%M UTC')"
+
+          # Retry in case someone pushed during the commit itself
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "✅ Pushed"
+              exit 0
+            fi
+            echo "Push rejected, re-syncing (attempt $i)..."
+            git fetch origin main
+            git reset --soft origin/main
+            git commit -m "🐝 Auto-update products $(date +'%Y-%m-%d %H:%M UTC')" || true
+            sleep 5
+          done
+
+          echo "❌ Could not push after 3 attempts"
+          exit 1
