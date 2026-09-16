@@ -36,7 +36,10 @@ jobs:
       # 3. Install dependencies
       - name: 📦 Install dependencies
         run: |
-          sudo apt-get install -y tesseract-ocr tesseract-ocr-dan
+          # Without apt-get update the package index may be stale and the
+          # install 404s. Non-fatal: OCR is optional, the merge degrades.
+          sudo apt-get update -qq || true
+          sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-dan || echo "⚠️ tesseract unavailable — Øko image OCR will be skipped"
           pip install -r scrapers/requirements.txt
 
       # 4. Run Rema1000 scraper (new digital API — no longer uses Algolia)
