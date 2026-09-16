@@ -124,6 +124,18 @@ def parse_product(item):
             or images[0].get("small")
         )
 
+    # ── Barcode: the longest EAN-13 in the list is the real product barcode ──
+    barcode = None
+    codes = [str(b) for b in (item.get("barcodes") or []) if str(b).isdigit()]
+    ean13 = [b for b in codes if len(b) == 13]
+    if ean13:
+        barcode = ean13[0]
+    elif codes:
+        barcode = max(codes, key=len)
+
+    # ── Ingredients: Rema1000 exposes these as "declaration" ──
+    ingredients = (item.get("declaration") or "").strip() or None
+
     return {
         "title":          item.get("name") or "Ukendt",
         "price":          price,
@@ -131,6 +143,8 @@ def parse_product(item):
         "store":          "Rema1000",
         "image_url":      image_url,
         "remaining_days": remaining_days,
+        "barcode":        barcode,
+        "ingredients":    ingredients,
     }
 
 
@@ -232,7 +246,7 @@ products = download_images(products)
 
 df = pd.DataFrame(
     products,
-    columns=["title", "price", "category", "store", "image_base64", "remaining_days"]
+    columns=["title", "price", "category", "store", "image_base64", "remaining_days", "barcode", "ingredients"]
 )
 df = df.dropna(subset=["title", "price"])
 df.to_excel(OUTPUT_FILE, index=False)

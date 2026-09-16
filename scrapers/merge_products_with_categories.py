@@ -8,8 +8,18 @@ Add a new scraper? Just save its output to data/ and it's included.
 import pandas as pd
 import os
 import re
+import base64
+from io import BytesIO
 from datetime import datetime
 from glob import glob
+
+try:
+    import pytesseract
+    from PIL import Image
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+    print("⚠️  pytesseract not installed — image OCR disabled. Run: pip install pytesseract")
 
 # ── Always work relative to THIS script's location ──
 SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
@@ -31,7 +41,8 @@ EXPLICIT_FILES = {
 }
 # ─────────────────────────────────────────────────
 
-COLUMNS = ["title", "price", "category", "store", "remaining_days", "image_base64"]
+COLUMNS = ["title", "price", "category", "subcategory", "store", "remaining_days", "image_base64", "barcode", "ingredients"]
+# Nutrition columns are added later by enrich_nutrition.py / estimate_nutriscore.py
 
 # ==================== CATEGORY CONFIG ====================
 
@@ -253,6 +264,7 @@ CATEGORY_MAP = {
 }
 
 MASTER_CATEGORIES = [
+    "Øko",
     "Frugt og grønt", "Kød", "Fisk", "Mejeri",
     "Brød og kager", "Drikkevarer", "Slik og snacks",
     "Frost", "Morgenmad", "Kolonial", "Andet",
@@ -403,8 +415,42 @@ def categorize_by_title(title):
     return best_cat if best_score >= 5 else "Andet"
 
 
+def detect_organic_in_image(image_base64):
+    """
+    Run OCR on product image to detect organic labels/text.
+    Catches products where title doesn't say ØKO but image shows:
+    - The red Danish Ø-label
+    - Text like "ØKO", "ORGANIC", "ÉCONOMIQUE" on packaging
+    """
+    if not OCR_AVAILABLE or not image_base64:
+        return False
+    try:
+        img_data  = base64.b64decode(image_base64.split(",")[1])
+        img       = Image.open(BytesIO(img_data)).convert("RGB")
+        # Upscale 3× — improves OCR accuracy on small 300×300 images
+        w, h      = img.size
+        img       = img.resize((w * 3, h * 3), Image.LANCZOS)
+        text      = pytesseract.image_to_string(img, lang="dan+eng").upper()
+        ORGANIC_KEYWORDS = ["ØKO", "ØKOLOGISK", "ORGANIC", "BIO "]
+        return any(kw in text for kw in ORGANIC_KEYWORDS)
+    except Exception:
+        return False
+
+
 def harmonize_categories(df):
     print("\n🔄 Harmonizing categories...")
+
+    # Keep the original store category as the subcategory (e.g. "Kylling", "Gris")
+    def clean_sub(s):
+        s = str(s or "").strip()
+        if not s or s.lower() in ("nan", "none", "andet"):
+            return ""
+        s = re.sub(r"\s*m\.?v\.?\s*$", "", s, flags=re.I)   # "Yoghurt m.v." -> "Yoghurt"
+        s = re.sub(r",?\s*mv\s*$", "", s, flags=re.I)         # "Ris & pasta, mv" -> "Ris & pasta"
+        s = re.sub(r"\s*\d+\s*$", "", s)                     # "Frugt Grønt 48" -> "Frugt Grønt"
+        return s.strip(" ,&")
+
+    df["subcategory"] = df["category"].map(clean_sub)
 
     # Use hardcoded master categories (not dependent on Rema1000 being present)
     masters = set(MASTER_CATEGORIES)
@@ -418,6 +464,25 @@ def harmonize_categories(df):
         cat   = row.get("category")
         store = row.get("store", "")
         title = row.get("title", "")
+
+        # 0. Øko check — takes priority over everything else
+        title_str  = str(title).upper() if pd.notna(title) else ""
+        from_title = (
+            "ØKO" in title_str or
+            "ØKOLOGISK" in title_str or
+            "ORGANIC" in title_str
+        )
+        # Also check image (especially useful for aviser products)
+        image_b64  = row.get("image_base64", "")
+        from_image = (not from_title) and detect_organic_in_image(image_b64)
+
+        if from_title or from_image:
+            new_cats.append("Øko")
+            counts["mapped"] += 1
+            if from_image and not from_title:
+                counts.setdefault("øko_from_image", 0)
+                counts["øko_from_image"] += 1
+            continue
 
         # 1. Keep Rema1000 categories (already correct)
         if store == "Rema1000" and pd.notna(cat) and cat != "" and cat in masters:
@@ -464,6 +529,8 @@ def harmonize_categories(df):
     print(f"   Kept valid:    {counts['kept_valid']}")
     print(f"   By title:      {counts['by_title']}")
     print(f"   Andet:         {counts['andet']}")
+    if counts.get("øko_from_image"):
+        print(f"   🌿 Øko via image OCR: {counts['øko_from_image']}")
     print(f"   🎯 Title success rate: {rate:.1f}%")
     return df
 

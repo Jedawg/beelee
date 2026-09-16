@@ -100,12 +100,16 @@ def find_products_in_json(obj, store, cat, seen, depth=0):
                 key = f"{title}|{price}"
                 if price and key not in seen:
                     seen.add(key)
+                    bc = obj.get("barcode_gtin") or obj.get("barcode")
+                    bc = str(bc).lstrip("0") if bc else None
                     results.append({
-                        "title":     title,
-                        "price":     price,
-                        "category":  cat,
-                        "store":     store,
-                        "image_url": image_url,
+                        "title":       title,
+                        "price":       price,
+                        "category":    cat,
+                        "store":       store,
+                        "image_url":   image_url,
+                        "barcode":     bc,
+                        "ingredients": (obj.get("description") or "").strip() or None,
                     })
         else:
             # Recurse into values
@@ -384,7 +388,7 @@ else:
     all_products = download_images(all_products)
     df = pd.DataFrame(
         all_products,
-        columns=["title","price","category","store","image_base64"]
+        columns=["title","price","category","store","image_base64","barcode","ingredients"]
     ).dropna(subset=["title","price"])
     df.to_excel(OUTPUT_FILE, index=False)
     mb = os.path.getsize(OUTPUT_FILE) / 1024 / 1024
