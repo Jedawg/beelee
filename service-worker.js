@@ -1,7 +1,14 @@
-// service-worker.js - Beelee PWA
-const CACHE_NAME = 'beelee-v2'; // bumped version
-const RUNTIME_CACHE = 'beelee-runtime-v2';
-const DATA_CACHE = 'beelee-data-v2';
+// service-worker.js — Beelee PWA
+//
+// Bump these whenever index.html changes, or returning users keep the old UI.
+const CACHE_NAME    = 'beelee-v3';
+const RUNTIME_CACHE = 'beelee-runtime-v3';
+const DATA_CACHE    = 'beelee-data-v3';
+
+// Stable key for the product file — the app appends ?t=<timestamp> for
+// cache-busting, which would otherwise create a new multi-MB cache entry
+// on every single load.
+const DATA_KEY = 'beelee-products-data';
 
 const STATIC_ASSETS = [
   '/',
@@ -17,7 +24,12 @@ const STATIC_ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(STATIC_ASSETS.map(url => new Request(url, { cache: 'reload' }))))
+      // One bad URL fails the whole addAll, so cache them individually
+      .then((cache) => Promise.allSettled(
+        STATIC_ASSETS.map(url =>
+          cache.add(new Request(url, { cache: 'reload' })).catch(() => null)
+        )
+      ))
       .then(() => self.skipWaiting())
   );
 });
@@ -35,44 +47,72 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+  const req = event.request;
+  if (req.method !== 'GET') return;
 
-  // API (Render backend) — network first, fall back to cache
+  const url = new URL(req.url);
+
+  // ── API (Render backend) — network first, fall back to cache ──
   if (url.origin === 'https://beelee-backend.onrender.com') {
     event.respondWith(
-      fetch(event.request)
+      fetch(req)
         .then((res) => {
-          caches.open(RUNTIME_CACHE).then(c => c.put(event.request, res.clone()));
+          const copy = res.clone();
+          caches.open(RUNTIME_CACHE).then(c => c.put(req, copy));
           return res;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() => caches.match(req))
     );
     return;
   }
 
-  // products.xlsx — cache first, update in background
-  if (url.href.includes('products.xlsx')) {
+  // ── products.xlsx — network first, cache as offline fallback ──
+  // The data file gains columns over time (subcategory, barcode, nutriscore…),
+  // so a stale copy means missing features. Always prefer the network and
+  // keep exactly one cached copy under a fixed key.
+  if (url.pathname.includes('products.xlsx')) {
     event.respondWith(
-      caches.open(DATA_CACHE).then((cache) =>
-        cache.match(event.request).then((cached) => {
-          const networkFetch = fetch(event.request).then((res) => {
-            cache.put(event.request, res.clone());
-            return res;
-          });
-          return cached || networkFetch;
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(DATA_CACHE).then(c => c.put(DATA_KEY, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.open(DATA_CACHE).then(c => c.match(DATA_KEY)))
+    );
+    return;
+  }
+
+  // ── The app shell — stale-while-revalidate ──
+  // Serve instantly from cache, but always refresh in the background so a
+  // new deploy lands on the next open without waiting for a version bump.
+  if (req.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('/index.html')) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then((cache) =>
+        cache.match('/index.html').then((cached) => {
+          const fresh = fetch(req)
+            .then((res) => {
+              if (res.ok) cache.put('/index.html', res.clone());
+              return res;
+            })
+            .catch(() => cached);
+          return cached || fresh;
         })
       )
     );
     return;
   }
 
-  // Everything else — cache first, fall back to network
+  // ── Everything else — cache first, fall back to network ──
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    caches.match(req).then((cached) => {
       if (cached) return cached;
-      return fetch(event.request).then((res) => {
-        if (res.status === 200) {
-          caches.open(RUNTIME_CACHE).then(c => c.put(event.request, res.clone()));
+      return fetch(req).then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(RUNTIME_CACHE).then(c => c.put(req, copy));
         }
         return res;
       });
