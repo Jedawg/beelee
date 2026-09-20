@@ -16,3 +16,6 @@ Pillow==10.3.0
 
 # OCR for organic label detection in images
 pytesseract==0.3.10
+
+# Postgres sync for crowdsourced prices
+psycopg2-binary==2.9.9

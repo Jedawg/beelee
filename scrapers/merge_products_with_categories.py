@@ -41,7 +41,7 @@ EXPLICIT_FILES = {
 }
 # ─────────────────────────────────────────────────
 
-COLUMNS = ["title", "price", "category", "subcategory", "store", "remaining_days", "image_base64", "barcode", "ingredients"]
+COLUMNS = ["product_key", "title", "price", "category", "subcategory", "store", "remaining_days", "image_base64", "barcode", "ingredients"]
 # Nutrition columns are added later by enrich_nutrition.py / estimate_nutriscore.py
 
 # ==================== CATEGORY CONFIG ====================
@@ -640,6 +640,13 @@ merged = merged.sort_values(
 ).drop("sort_priority", axis=1)
 
 # ── Save ────────────────────────────────────────
+# Stable identity for every product — barcode when we have one, else a
+# normalised title. Must match productKey() in index.html.
+from product_key import product_key
+merged["product_key"] = [
+    product_key(t, b) for t, b in zip(merged["title"], merged.get("barcode", [None]*len(merged)))
+]
+
 output = os.path.join(DATA_DIR, "products.xlsx")
 merged = clean_df_for_excel(merged)
 merged.to_excel(output, index=False)
