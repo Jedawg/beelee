@@ -127,6 +127,363 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <!-- Tesseract loads lazily, only when the user opens the scanner -->
+
+  <script>
+// receipt-engine.js — browser port of parse_receipt.py + match_receipt_items.py
+//
+// Runs on-device so receipt images never leave the phone.
+// Kept behaviourally identical to the Python versions; the test suite at the
+// bottom mirrors theirs case for case.
+
+(function (global) {
+  'use strict';
+
+  // ══════════════════════════════════════════════════════════
+  // PARSER
+  // ══════════════════════════════════════════════════════════
+
+  const STORE_PATTERNS = [
+    [/rema\s*1000/i,               'Rema1000'],
+    [/\bnetto\b/i,                 'Netto'],
+    [/\blidl\b/i,                  'Lidl'],
+    [/f[øo0]tex/i,                 'Føtex'],
+    [/\bbilka\b/i,                 'Bilka'],
+    [/\bmeny\b/i,                  'Meny'],
+    [/superbrugsen/i,              'SuperBrugsen & Kvickly'],
+    [/kvickly/i,                   'SuperBrugsen & Kvickly'],
+    [/d[ae]gli.?brugsen/i,         'Brugsen'],
+    [/\bbrugsen\b/i,               'Brugsen'],
+    [/365\s*discount|coop\s*365/i, '365'],
+    [/\bspar\b/i,                  'Spar'],
+    [/min\s*k[øo]bmand/i,          'Min Kobmand'],
+  ];
+
+  const SKIP_RE = new RegExp([
+    /^\s*i\s*alt\b/, /^\s*total\b/, /^\s*subtotal\b/,
+    /^\s*at\s*betale\b/, /^\s*betalt\b/, /^\s*betaling\b/,
+    /\bmoms\b/, /\bvat\b/,
+    /^\s*dankort\b/, /^\s*visa\b/, /^\s*mastercard\b/,
+    /^\s*kontant\b/, /^\s*mobilepay\b/, /^\s*byttepenge\b/,
+    /\bcvr\b/, /\bkvittering\b/, /^\s*bon\b/, /\bbonnr\b/,
+    /\bkassenr\b/, /\bekspedient\b/, /\bterminal\b/,
+    /\bafrunding\b/, /\breturneres\b/, /\bbyttes\b/,
+    /\btak for bes[øo]get\b/, /\bvel m[øo]dt\b/,
+    /\bmedlemsnr\b/, /\bkundenr\b/, /\bbonuspoint\b/,
+    /^\s*[-=_*]{3,}\s*$/,
+  ].map(r => r.source).join('|'), 'i');
+
+  const PANT_RE  = /^\s*pant\b/i;
+  const RABAT_RE = /\b(rabat|tilbud|besparelse|medlemspris)\b/i;
+
+  const ITEM_RE       = /^\s*(.+?)\s{2,}(-?\d{1,4}[.,]\d{2})\s*[A-Z]?\s*$/;
+  const ITEM_LOOSE_RE = /^\s*([A-Za-zÆØÅæøå][^\d]{2,40}?)\s+(-?\d{1,4}[.,]\d{2})\s*[A-Z]?\s*$/;
+  const QTY_RE        = /^\s*(\d{1,3})\s*(?:x|stk\.?\s*[aà]?|\*)\s*(\d{1,4}[.,]\d{2})\s*$/i;
+  const WEIGHT_RE     = /^\s*(\d{1,3}[.,]\d{1,3})\s*(kg|g|l|ml)\s*(?:x|\*)\s*(\d{1,4}[.,]\d{2})/i;
+  const NAME_WEIGHT_RE= /^\s*([A-Za-zÆØÅæøå][^\d]{2,40}?)\s{2,}(\d{1,3}[.,]\d{1,3})\s*(kg|g|l|ml)\s*(?:x|\*)\s*(\d{1,4}[.,]\d{2})\s*$/i;
+  const BARE_PRICE_RE = /^\s*(-?\d{1,4}[.,]\d{2})\s*[A-Z]?\s*$/;
+  const DATE_RE       = /(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/;
+
+  function num(s) {
+    s = String(s);
+    return (s.split(',').length - 1) === 1
+      ? parseFloat(s.replace(/\./g, '').replace(',', '.'))
+      : parseFloat(s.replace(/,/g, ''));
+  }
+
+  function detectStore(lines) {
+    const head = lines.slice(0, 12).join(' ');
+    for (const [re, store] of STORE_PATTERNS) if (re.test(head)) return store;
+    return null;
+  }
+
+  function detectDate(lines) {
+    const scan = lines.slice(0, 20).concat(lines.slice(-20));
+    for (const line of scan) {
+      const m = DATE_RE.exec(line);
+      if (!m) continue;
+      let [, d, mo, y] = m;
+      y = parseInt(y, 10); if (y < 100) y += 2000;
+      const dt = new Date(y, parseInt(mo, 10) - 1, parseInt(d, 10));
+      if (dt.getFullYear() === y && dt.getMonth() === parseInt(mo, 10) - 1
+          && y >= 2020 && y <= new Date().getFullYear() + 1) {
+        const p = n => String(n).padStart(2, '0');
+        return `${y}-${p(mo)}-${p(d)}`;
+      }
+    }
+    return null;
+  }
+
+  function parseReceipt(text) {
+    const lines = String(text || '').split(/\r?\n/)
+      .map(l => l.replace(/\s+$/, '')).filter(l => l.trim());
+
+    const store = detectStore(lines);
+    const date  = detectDate(lines);
+
+    const items = [], skipped = [], warnings = [];
+    let deposits = 0, discounts = 0;
+
+    let end = lines.length;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*(i\s*alt|total|at\s*betale)\b/i.test(lines[i])) { end = i; break; }
+    }
+
+    let i = 0;
+    while (i < end) {
+      const line = lines[i];
+
+      if (SKIP_RE.test(line)) { skipped.push(line.trim()); i++; continue; }
+
+      // Weighted goods where the total is on the next line
+      const nw = NAME_WEIGHT_RE.exec(line);
+      if (nw && i + 1 < end) {
+        const bp = BARE_PRICE_RE.exec(lines[i + 1]);
+        if (bp) {
+          items.push({
+            name: nw[1].replace(/\s{2,}/g, ' ').replace(/^[\s.\-*]+|[\s.\-*]+$/g, '').toUpperCase(),
+            line_total: Math.round(num(bp[1]) * 100) / 100,
+            qty: 1,
+            unit_price: Math.round(num(nw[4]) * 100) / 100,
+            kind: 'weighted',
+          });
+          i += 2; continue;
+        }
+      }
+
+      const m = ITEM_RE.exec(line) || ITEM_LOOSE_RE.exec(line);
+      if (!m) { skipped.push(line.trim()); i++; continue; }
+
+      const name = m[1].replace(/\s{2,}/g, ' ').replace(/^[\s.\-*]+|[\s.\-*]+$/g, '');
+      const total = num(m[2]);
+      if (!isFinite(total)) { skipped.push(line.trim()); i++; continue; }
+
+      if (PANT_RE.test(name))  { deposits  += total; i++; continue; }
+      if (RABAT_RE.test(name) || total < 0) { discounts += total; i++; continue; }
+      if (name.replace(/[^A-Za-zÆØÅæøå]/g, '').length < 3) {
+        skipped.push(line.trim()); i++; continue;
+      }
+
+      let qty = 1, unitPrice = total, kind = 'item';
+      if (i + 1 < end) {
+        const nxt = lines[i + 1];
+        const qm = QTY_RE.exec(nxt), wm = WEIGHT_RE.exec(nxt);
+        if (qm)      { qty = parseInt(qm[1], 10); unitPrice = num(qm[2]); i++; }
+        else if (wm) { kind = 'weighted'; unitPrice = num(wm[3]); i++; }
+      }
+
+      items.push({
+        name: name.toUpperCase(),
+        line_total: Math.round(total * 100) / 100,
+        qty, unit_price: Math.round(unitPrice * 100) / 100, kind,
+      });
+      i++;
+    }
+
+    if (!store)        warnings.push('Butik ikke genkendt');
+    if (!items.length) warnings.push('Ingen varelinjer fundet');
+
+    let printedTotal = null;
+    for (const line of lines.slice(end, end + 6)) {
+      if (/^\s*(i\s*alt|total|at\s*betale)\b/i.test(line)) {
+        const m = /(\d{1,4}[.,]\d{2})/.exec(line);
+        if (m) { printedTotal = num(m[1]); break; }
+      }
+    }
+    if (printedTotal != null) {
+      const summed = items.reduce((s, x) => s + x.line_total, 0) + deposits + discounts;
+      if (Math.abs(summed - printedTotal) > 0.5) {
+        warnings.push(`Sum stemmer ikke: linjer ${summed.toFixed(2)} vs bon ${printedTotal.toFixed(2)}`);
+      }
+    }
+
+    return {
+      store, date, items,
+      deposits: Math.round(deposits * 100) / 100,
+      discounts: Math.round(discounts * 100) / 100,
+      printed_total: printedTotal, skipped, warnings,
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // MATCHER
+  // ══════════════════════════════════════════════════════════
+
+  const NGRAM_N = 4, NGRAM_WEIGHT = 0.45, MIN_SCORE = 0.30, AMBIGUOUS_GAP = 0.06;
+
+  const ABBREV = [
+    [/\bhk\b/g, 'hakket'], [/\boko\b/g, 'okologisk'], [/\bokol\b/g, 'okologisk'],
+    [/\bskivost\b/g, 'skiveost'], [/\bfl\b/g, 'flaske'],
+    [/\bm\//g, 'med '], [/\bu\//g, 'uden '],
+    [/\bkyll\b/g, 'kylling'], [/\bsvine\b/g, 'svinekod'], [/\bokse\b/g, 'oksekod'],
+    [/\brugbr\b/g, 'rugbrod'], [/\bmineralv\b/g, 'mineralvand'],
+    [/\bchok\b/g, 'chokolade'],
+  ];
+
+  const STOPWORDS = new Set([
+    'stk','pk','pakke','pose','bakke','flaske','glas','dase',
+    'ca','kg','gr','gram','liter','ltr','cl','dl',
+    'dansk','danske','frisk','friske','naturel','original',
+    'med','uden','og','til','fra','af','the','and',
+    'vare','varer','produkt','tilbud','spar','pris',
+  ]);
+
+  function foldDanish(s) {
+    return s.replace(/æ/g, 'ae').replace(/ø/g, 'o').replace(/å/g, 'aa');
+  }
+
+  function normalise(text) {
+    let s = String(text || '').toLowerCase();
+    s = s.replace(/\./g, ' ').replace(/\//g, ' / ');
+    s = foldDanish(s);
+    for (const [re, full] of ABBREV) s = s.replace(re, full);
+    s = s.replace(/[^\w%\s]/g, ' ');
+    return s.split(/\s+/).filter(Boolean).join(' ');
+  }
+
+  // OCR confuses these on thermal paper. Repair only inside words that are
+  // otherwise letters, so "500G" is still treated as a size and dropped.
+  const OCR_MAP = { '0': 'o', '1': 'i', '5': 's', '8': 'b', '6': 'g' };
+  function repairOcr(word) {
+    const letters = (word.match(/[a-zæøå]/g) || []).length;
+    const digits  = (word.match(/\d/g) || []).length;
+    if (digits && letters >= 3 && letters > digits)
+      return word.replace(/[015 86]/g, c => OCR_MAP[c] || c);
+    return word;
+  }
+
+  function tokenize(text) {
+    const out = [];
+    for (let w of normalise(text).split(' ')) {
+      w = repairOcr(w);
+      if (w.length < 3 || STOPWORDS.has(w)) continue;
+      if (/\d/.test(w)) continue;
+      for (const suf of ['erne','ene','er','en','et','e']) {
+        if (w.length > 5 && w.endsWith(suf)) { w = w.slice(0, -suf.length); break; }
+      }
+      out.push(w);
+    }
+    return out;
+  }
+
+  function charNgrams(word, n) {
+    n = n || NGRAM_N;
+    if (word.length <= n) return [word];
+    const out = [];
+    for (let i = 0; i <= word.length - n; i++) out.push(word.slice(i, i + n));
+    return out;
+  }
+
+  function buildBag(text) {
+    const bag = new Map();
+    for (const tok of tokenize(text)) {
+      bag.set(tok, (bag.get(tok) || 0) + 1);
+      for (const g of charNgrams(tok))
+        bag.set('#' + g, (bag.get('#' + g) || 0) + NGRAM_WEIGHT);
+    }
+    return bag;
+  }
+
+  function cosine(a, b, idf) {
+    if (!a.size || !b.size) return 0;
+    let num = 0;
+    for (const [t, va] of a) {
+      const vb = b.get(t);
+      if (vb === undefined) continue;
+      const w = idf.get(t) || 1;
+      num += va * vb * w * w;
+    }
+    if (!num) return 0;
+    let na = 0, nb = 0;
+    for (const [t, v] of a) { const w = idf.get(t) || 1; na += (v * w) ** 2; }
+    for (const [t, v] of b) { const w = idf.get(t) || 1; nb += (v * w) ** 2; }
+    return (na && nb) ? num / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+  }
+
+  class ReceiptMatcher {
+    constructor(products) {
+      this.products = products || [];
+      this.bags = this.products.map(p => buildBag(p.title || ''));
+
+      const df = new Map();
+      for (const bag of this.bags)
+        for (const t of bag.keys()) df.set(t, (df.get(t) || 0) + 1);
+      const n = Math.max(1, this.bags.length);
+      this.idf = new Map();
+      for (const [t, f] of df) this.idf.set(t, Math.log(n / (1 + f)) + 1);
+
+      this.byStore = new Map();
+      this.products.forEach((p, i) => {
+        const k = p.store;
+        if (!this.byStore.has(k)) this.byStore.set(k, []);
+        this.byStore.get(k).push(i);
+      });
+    }
+
+    match(receiptName, store, price) {
+      const bag = buildBag(receiptName);
+      if (!bag.size) return null;
+
+      const pool = this.byStore.get(store) || this.products.map((_, i) => i);
+      const scored = [];
+      for (const i of pool) {
+        let s = cosine(bag, this.bags[i], this.idf);
+        if (s <= 0) continue;
+        if (price != null) {
+          const pp = parseFloat(this.products[i].price);
+          if (isFinite(pp)) {
+            const d = Math.abs(pp - parseFloat(price));
+            if (d < 0.5) s += 0.12; else if (d < 2.0) s += 0.04;
+          }
+        }
+        scored.push([s, i]);
+      }
+      if (!scored.length) return null;
+      scored.sort((a, b) => b[0] - a[0]);
+      if (scored[0][0] < MIN_SCORE) return null;
+
+      const runner = scored[1] || null;
+      return {
+        product: this.products[scored[0][1]],
+        score: Math.round(scored[0][0] * 1000) / 1000,
+        ambiguous: !!(runner && (scored[0][0] - runner[0]) < AMBIGUOUS_GAP),
+        runner_up: runner ? this.products[runner[1]] : null,
+      };
+    }
+
+    matchReceipt(parsed, store) {
+      store = store || parsed.store;
+      return (parsed.items || []).map(item => {
+        const hit = this.match(item.name, store, item.unit_price);
+        return {
+          receipt: item,
+          match: hit ? hit.product : null,
+          score: hit ? hit.score : 0,
+          ambiguous: hit ? hit.ambiguous : false,
+          status: hit ? (hit.ambiguous ? 'ambiguous' : 'matched') : 'unmatched',
+        };
+      });
+    }
+  }
+
+  // Stable product identity — must match product_key.py byte for byte.
+  function productKey(title, barcode){
+    if(barcode != null){
+      let bc = String(barcode).replace(/\D/g,'').replace(/^0+/,'');
+      if(bc.length >= 8) return 'ean:' + bc;
+    }
+    let s = String(title||'').toLowerCase();
+    s = s.replace(/æ/g,'ae').replace(/ø/g,'o').replace(/å/g,'aa');
+    s = s.replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+    return 't:' + (s.slice(0,120) || 'ukendt');
+  }
+
+  global.BeeleeReceipt = { parseReceipt, ReceiptMatcher, normalise, tokenize, productKey };
+
+})(typeof window !== 'undefined' ? window : globalThis);
+
+
+  </script>
 
   <style>
     *{-webkit-tap-highlight-color:transparent;box-sizing:border-box;}
@@ -191,6 +548,167 @@ const STORE_META = {
 };
 const sm = s => STORE_META[s]||{dot:'#8E8E93',bg:'#F2F2F7',tx:'#3C3C43',name:(s||'').toUpperCase()};
 
+// ── Geolocation + store distances ──
+const STORES_URL = 'https://raw.githubusercontent.com/Jedawg/beelee/main/data/stores.json';
+
+// Great-circle distance in metres. Accurate enough at city scale.
+function haversine(lat1, lon1, lat2, lon2){
+  const R=6371000, rad=Math.PI/180;
+  const dLat=(lat2-lat1)*rad, dLon=(lon2-lon1)*rad;
+  const a=Math.sin(dLat/2)**2 + Math.cos(lat1*rad)*Math.cos(lat2*rad)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+
+function formatDistance(m){
+  if(m==null) return null;
+  if(m<1000) return Math.round(m/10)*10 + ' m';
+  return (m/1000).toFixed(m<10000?1:0).replace('.',',') + ' km';
+}
+
+// Is the shop open right now, per the OSM opening_hours string?
+// Deliberately handles only the simple recurring forms Danish shops use.
+// Anything with holidays, seasons or off-rules returns null = "don't claim".
+function isOpenNow(hours, now=new Date()){
+  if(!hours || typeof hours!=='string') return null;
+  const h=hours.trim();
+  if(/PH|SH|easter|off|\|\||week /i.test(h)) return null;
+  if(/^24\/7$/.test(h)) return true;
+  const DAYS=['Su','Mo','Tu','We','Th','Fr','Sa'];
+  const today=DAYS[now.getDay()];
+  const mins=now.getHours()*60+now.getMinutes();
+  for(const part of h.split(';')){
+    const m=part.trim().match(/^([A-Za-z,\-]+)\s+(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
+    if(!m) continue;
+    const [,dayspec,h1,m1,h2,m2]=m;
+    let matches=false;
+    for(const token of dayspec.split(',')){
+      if(token.includes('-')){
+        const [a,b]=token.split('-');
+        const ia=DAYS.indexOf(a), ib=DAYS.indexOf(b), it=DAYS.indexOf(today);
+        if(ia<0||ib<0) continue;
+        if(ia<=ib ? (it>=ia&&it<=ib) : (it>=ia||it<=ib)) matches=true;
+      } else if(token===today) matches=true;
+    }
+    if(!matches) continue;
+    const open=(+h1)*60+(+m1);
+    let close=(+h2)*60+(+m2);
+    if(close<=open) close+=1440;              // spans midnight
+    if(mins>=open && mins<close) return true;
+    if(mins+1440>=open && mins+1440<close) return true;
+  }
+  return false;
+}
+
+function useStores(){
+  const [coords,setCoords]   = useState(null);
+  const [status,setStatus]   = useState('idle');  // idle|asking|ok|denied|unavailable
+  const [stores,setStores]   = useState([]);
+
+  // Store list is public data — fetch it regardless of location permission
+  useEffect(()=>{
+    fetch(STORES_URL)
+      .then(r=>r.ok?r.json():null)
+      .then(d=>{ if(d?.stores) setStores(d.stores); })
+      .catch(()=>{});
+  },[]);
+
+  // Remember the last fix so the app isn't blank before permission is granted
+  useEffect(()=>{
+    try{
+      const saved=JSON.parse(localStorage.getItem('beelee_coords')||'null');
+      if(saved && Date.now()-saved.t < 86400000){ setCoords(saved); setStatus('ok'); }
+    }catch{}
+  },[]);
+
+  const locate=useCallback(()=>{
+    if(!navigator.geolocation){ setStatus('unavailable'); return; }
+    setStatus('asking');
+    navigator.geolocation.getCurrentPosition(
+      pos=>{
+        const c={lat:pos.coords.latitude,lon:pos.coords.longitude,t:Date.now()};
+        setCoords(c); setStatus('ok');
+        try{ localStorage.setItem('beelee_coords',JSON.stringify(c)); }catch{}
+      },
+      err=>setStatus(err.code===1?'denied':'unavailable'),
+      { enableHighAccuracy:false, timeout:10000, maximumAge:300000 }
+    );
+  },[]);
+
+  // Nearest branch of each chain, keyed by the store name used in products
+  const nearestByChain = useMemo(()=>{
+    if(!coords || !stores.length) return {};
+    const best={};
+    for(const s of stores){
+      const d=haversine(coords.lat,coords.lon,s.lat,s.lon);
+      if(!best[s.chain] || d<best[s.chain].distance)
+        best[s.chain]={...s,distance:d};
+    }
+    return best;
+  },[coords,stores]);
+
+  const clearLocation=useCallback(()=>{
+    setCoords(null); setStatus('idle');
+    try{ localStorage.removeItem('beelee_coords'); }catch{}
+  },[]);
+
+  // ── In-store detection ──
+  // Indoor GPS is 30-100 m, and central Copenhagen often has several shops
+  // inside that error. So we never decide which store you're in — we collect
+  // candidates and ask.
+  const IN_STORE_RADIUS = 150;   // metres
+
+  const candidates = useMemo(()=>{
+    if(!coords || !stores.length) return [];
+    return stores
+      .map(s=>({...s,distance:haversine(coords.lat,coords.lon,s.lat,s.lon)}))
+      .filter(s=>s.distance<=IN_STORE_RADIUS)
+      .sort((a,b)=>a.distance-b.distance)
+      .slice(0,6);
+  },[coords,stores]);
+
+  // The store the user has confirmed they're standing in, if any
+  const [activeStore,setActiveStore]=useState(()=>{
+    try{
+      const v=JSON.parse(localStorage.getItem('beelee_active_store')||'null');
+      // A confirmation is only good for two hours — people leave shops
+      if(v && Date.now()-v.t < 7200000) return v.store;
+    }catch{}
+    return null;
+  });
+
+  const confirmStore=useCallback(store=>{
+    setActiveStore(store);
+    try{
+      localStorage.setItem('beelee_active_store',
+        JSON.stringify({store,t:Date.now()}));
+    }catch{}
+  },[]);
+
+  const dismissStorePrompt=useCallback(()=>{
+    try{ sessionStorage.setItem('beelee_store_dismissed','1'); }catch{}
+    setActiveStore(null);
+  },[]);
+
+  const leaveStore=useCallback(()=>{
+    setActiveStore(null);
+    try{
+      localStorage.removeItem('beelee_active_store');
+      sessionStorage.removeItem('beelee_store_dismissed');
+    }catch{}
+  },[]);
+
+  // Ask only when we have candidates, nothing confirmed, and the user
+  // hasn't already waved the prompt away this session
+  const shouldAsk = useMemo(()=>{
+    if(activeStore || !candidates.length) return false;
+    try{ if(sessionStorage.getItem('beelee_store_dismissed')) return false; }catch{}
+    return true;
+  },[activeStore,candidates]);
+
+  return{coords,status,stores,nearestByChain,locate,clearLocation,
+         candidates,activeStore,shouldAsk,confirmStore,dismissStorePrompt,leaveStore};
+}
+
 // ── Virtual scroll ──
 function useVS(items,ih=84,ch=520){
   const [st,setSt]=useState(0);
@@ -228,7 +746,9 @@ function useProducts(){
       const rows=XLSX.utils.sheet_to_json(XLSX.read(buf).Sheets[XLSX.read(buf).SheetNames[0]]);
       const isIOS=/iPhone|iPod/.test(navigator.userAgent);
       const ps=rows.slice(0,isIOS?1000:rows.length).map(r=>({
-        id:crypto.randomUUID(),title:r.title||'Ukendt',price:Number(r.price)||0,
+        id:crypto.randomUUID(),
+        productKey:r.product_key||window.BeeleeReceipt.productKey(r.title,r.barcode),
+        title:r.title||'Ukendt',price:Number(r.price)||0,
         category:r.category||'Andet',subcategory:r.subcategory||'',store:r.store||'Ukendt',
         imageBase64:r.image_base64||null,
         remainingDays:r.remaining_days!=null?Number(r.remaining_days):null,
@@ -341,6 +861,127 @@ function StoreBadge({store,size='sm'}){
     <span style={{width:5,height:5,borderRadius:'50%',background:c.dot,flexShrink:0}}/>
     {c.name}
   </span>;
+}
+
+function StoreConfirmModal({candidates,onConfirm,onDismiss}){
+  if(!candidates.length) return null;
+  const multiple = candidates.length > 1;
+  return(
+    <div style={{position:'fixed',inset:0,zIndex:500,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'flex-end'}}
+      onClick={onDismiss}>
+      <div onClick={e=>e.stopPropagation()}
+        style={{background:'#F2F2F7',borderRadius:'16px 16px 0 0',width:'100%',maxHeight:'80vh',overflowY:'auto',animation:'slideUp .25s ease',paddingBottom:'calc(16px + env(safe-area-inset-bottom,0px))'}}>
+
+        <div style={{width:36,height:5,borderRadius:3,background:'#D1D1D6',margin:'8px auto 0'}}/>
+
+        <div style={{padding:'16px 20px 12px',textAlign:'center'}}>
+          <div style={{width:44,height:44,borderRadius:'50%',background:'#EAF1FE',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 10px'}}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3478F6" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/></svg>
+          </div>
+          <p style={{margin:0,fontSize:19,fontWeight:600,letterSpacing:'-.3px',color:'var(--label)'}}>
+            {multiple?'Hvilken butik er du i?':'Er du i denne butik?'}
+          </p>
+          <p style={{margin:'5px 0 0',fontSize:13,color:'var(--label3)',lineHeight:1.45}}>
+            {multiple
+              ? 'Vi kan se flere butikker i nærheden — vælg den rigtige.'
+              : 'Bekræft, så viser vi priserne herfra.'}
+          </p>
+        </div>
+
+        <div style={{background:'white',borderRadius:12,margin:'0 16px',overflow:'hidden'}}>
+          {candidates.map((s,i)=>{
+            const meta = sm(s.chain);
+            const open = isOpenNow(s.hours);
+            return(
+              <button key={s.id} type="button" onClick={()=>onConfirm(s)}
+                style={{width:'100%',display:'flex',alignItems:'center',gap:11,padding:'13px 14px',background:'none',border:'none',borderTop:i?'.5px solid #F2F2F7':'none',textAlign:'left'}}>
+                <span style={{width:9,height:9,borderRadius:'50%',background:meta.dot,flexShrink:0}}/>
+                <span style={{flex:1,minWidth:0}}>
+                  <span style={{display:'block',fontSize:15,fontWeight:500,color:'var(--label)'}}>{s.name}</span>
+                  {s.address&&<span style={{display:'block',fontSize:12,color:'var(--label3)',marginTop:2}}>{s.address}</span>}
+                  <span style={{display:'block',fontSize:11,color:'var(--label3)',marginTop:3}}>
+                    {formatDistance(s.distance)}
+                    {open===true  && <span style={{color:'#2E7D32'}}> · Åben nu</span>}
+                    {open===false && <span style={{color:'#C62828'}}> · Lukket</span>}
+                  </span>
+                </span>
+                <svg width="8" height="13" viewBox="0 0 8 13" fill="none" stroke="#C7C7CC" strokeWidth="2" strokeLinecap="round"><path d="M1 1l6 5.5L1 12"/></svg>
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{padding:'12px 16px 0'}}>
+          <button type="button" onClick={onDismiss}
+            style={{width:'100%',padding:13,borderRadius:12,background:'white',border:'none',fontSize:15,fontWeight:500,color:'var(--label2)'}}>
+            Ingen af disse
+          </button>
+          <p style={{margin:'10px 4px 0',fontSize:11,color:'var(--label3)',textAlign:'center',lineHeight:1.5}}>
+            Din placering bruges kun på telefonen og sendes ikke videre.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActiveStoreBanner({store,onLeave}){
+  if(!store) return null;
+  const meta = sm(store.chain);
+  return(
+    <div style={{margin:'0 16px 12px',padding:'11px 13px',background:'white',borderRadius:12,border:`1.5px solid ${meta.dot}`,display:'flex',alignItems:'center',gap:10}}>
+      <span style={{width:9,height:9,borderRadius:'50%',background:meta.dot,flexShrink:0}}/>
+      <span style={{flex:1,minWidth:0}}>
+        <span style={{display:'block',fontSize:11,color:'var(--label3)'}}>Du handler i</span>
+        <span style={{display:'block',fontSize:14,fontWeight:500,color:'var(--label)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{store.name}</span>
+      </span>
+      <button type="button" onClick={onLeave}
+        style={{background:'none',border:'none',fontSize:12,color:'var(--blue)',fontWeight:500,flexShrink:0,padding:'4px 0'}}>
+        Skift
+      </button>
+    </div>
+  );
+}
+
+function StoreDistance({chain,nearestByChain}){
+  const s = nearestByChain?.[chain];
+  if(!s) return null;
+  const open = isOpenNow(s.hours);
+  return(
+    <span style={{fontSize:10,color:'var(--label3)',display:'inline-flex',alignItems:'center',gap:4}}>
+      {formatDistance(s.distance)}
+      {open===true  && <span style={{color:'#2E7D32'}}>· Åben</span>}
+      {open===false && <span style={{color:'#C62828'}}>· Lukket</span>}
+    </span>
+  );
+}
+
+function LocationPrompt({status,locate}){
+  if(status==='ok') return null;
+  if(status==='denied') return(
+    <div style={{margin:'0 16px 12px',padding:'10px 12px',background:'#FFF8E1',borderRadius:10,border:'.5px solid #FFE082'}}>
+      <p style={{margin:0,fontSize:11,color:'#8D6E00',lineHeight:1.45}}>
+        Placering er slået fra. Slå den til i browserens indstillinger for at se afstand til butikker.
+      </p>
+    </div>
+  );
+  if(status==='unavailable') return null;
+  return(
+    <button type="button" onClick={locate}
+      style={{margin:'0 16px 12px',width:'calc(100% - 32px)',padding:'11px 12px',background:'white',border:'.5px solid rgba(0,0,0,.1)',borderRadius:10,display:'flex',alignItems:'center',gap:9,textAlign:'left'}}>
+      <span style={{width:28,height:28,borderRadius:'50%',background:'#EAF1FE',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3478F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      </span>
+      <span style={{flex:1}}>
+        <span style={{display:'block',fontSize:13,fontWeight:500,color:'var(--label)'}}>
+          {status==='asking'?'Finder din placering…':'Vis afstand til butikker'}
+        </span>
+        <span style={{display:'block',fontSize:11,color:'var(--label3)',marginTop:1}}>
+          Din placering forlader aldrig telefonen
+        </span>
+      </span>
+    </button>
+  );
 }
 
 function OkoBadge(){
@@ -579,7 +1220,7 @@ function ProductDetail({product,onClose,onAdd,inBasket,qty,getByIds}){
 }
 
 // ── HOME VIEW ──
-function HomeView({dbReady,total,loading,updated,getOffers,getCats,search,onProductTap,inBasket,onAdd,getQty,onSearch}){
+function HomeView({dbReady,total,loading,updated,getOffers,getCats,search,onProductTap,inBasket,onAdd,getQty,onSearch,geoStatus,locate,nearestByChain,activeStore,leaveStore,onScan}){
   const [offers,setOffers]=useState([]);
   const [cats,setCats]=useState([]);
 
@@ -601,6 +1242,28 @@ function HomeView({dbReady,total,loading,updated,getOffers,getCats,search,onProd
           <span style={{fontSize:16,color:'var(--label3)'}}>Søg produkter og priser...</span>
         </button>
       </div>
+
+      {/* Location / active store */}
+      <div style={{marginTop:14}}>
+        {activeStore
+          ? <ActiveStoreBanner store={activeStore} onLeave={leaveStore}/>
+          : <LocationPrompt status={geoStatus} locate={locate}/>}
+      </div>
+
+      {/* Contribute */}
+      <button type="button" onClick={onScan}
+        style={{margin:'0 16px 12px',width:'calc(100% - 32px)',padding:'12px 13px',borderRadius:12,border:'none',display:'flex',alignItems:'center',gap:10,textAlign:'left',background:activeStore?'#EAF1FE':'white',boxShadow:activeStore?'none':'0 0 0 .5px rgba(0,0,0,.1)'}}>
+        <span style={{width:30,height:30,borderRadius:'50%',background:activeStore?'#3478F6':'#EAF1FE',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={activeStore?'white':'#3478F6'} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        </span>
+        <span style={{flex:1}}>
+          <span style={{display:'block',fontSize:13,fontWeight:600,color:'var(--label)'}}>Scan din kvittering</span>
+          <span style={{display:'block',fontSize:11,color:'var(--label3)',marginTop:1}}>
+            {activeStore?`Opdater priserne i ${activeStore.name}`:'Hjælp med at holde priserne opdaterede'}
+          </span>
+        </span>
+        <svg width="7" height="12" viewBox="0 0 8 13" fill="none" stroke="#C7C7CC" strokeWidth="2" strokeLinecap="round"><path d="M1 1l6 5.5L1 12"/></svg>
+      </button>
 
       {/* Category chips */}
       {dbReady&&cats.length>0&&(
@@ -659,7 +1322,7 @@ function HomeView({dbReady,total,loading,updated,getOffers,getCats,search,onProd
 }
 
 // ── SEARCH VIEW ──
-function SearchView({dbReady,total,loading,products,search,getCats,getSubs,getStores,onProductTap,inBasket,onAdd,getQty,initialQuery,initialCategory}){
+function SearchView({dbReady,total,loading,products,search,getCats,getSubs,getStores,onProductTap,inBasket,onAdd,getQty,initialQuery,initialCategory,nearestByChain}){
   const [term,setTerm]=useState(initialQuery||'');
   const [cat,setCat]=useState(initialCategory||'all');
   const [sub,setSub]=useState('all');
@@ -785,6 +1448,7 @@ function SearchView({dbReady,total,loading,products,search,getCats,getSubs,getSt
                         <p style={{margin:0,fontSize:14,fontWeight:500,color:'var(--label)',lineHeight:1.3,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>{p.title}</p>
                         <div style={{display:'flex',alignItems:'center',gap:4,marginTop:3,flexWrap:'wrap'}}>
                           <StoreBadge store={p.store}/>
+                          <StoreDistance chain={p.store} nearestByChain={nearestByChain}/>
                           {isOko&&<OkoBadge/>}
                           <NutriBadge grade={p.nutriscore} source={p.nutriscoreSource}/>
                           {p.remainingDays!=null&&<span style={{background:'#FFF3E0',color:'#E65100',fontSize:9,fontWeight:700,borderRadius:4,padding:'1px 4px'}}>🔥 {p.remainingDays}d</span>}
@@ -813,7 +1477,7 @@ function SearchView({dbReady,total,loading,products,search,getCats,getSubs,getSt
 }
 
 // ── BASKET VIEW ──
-function BasketView({basket,getByIds,setQty,remove,clear,inBasket}){
+function BasketView({basket,getByIds,setQty,remove,clear,inBasket,nearestByChain}){
   const [pMap,setPMap]=useState({});
   const [optimizing,setOptimizing]=useState(false);
   const [storeGroups,setStoreGroups]=useState({});
@@ -859,7 +1523,11 @@ function BasketView({basket,getByIds,setQty,remove,clear,inBasket}){
     </div>
   );
 
-  const storeEntries=Object.entries(storeGroups);
+  const storeEntries=Object.entries(storeGroups).sort((a,b)=>{
+    const da=nearestByChain?.[a[0]]?.distance ?? Infinity;
+    const db=nearestByChain?.[b[0]]?.distance ?? Infinity;
+    return da-db;
+  });
 
   return(
     <div style={{paddingBottom:140}}>
@@ -891,10 +1559,16 @@ function BasketView({basket,getByIds,setQty,remove,clear,inBasket}){
         const c=sm(store);
         return(
           <div key={store} style={{margin:'0 16px 16px'}}>
-            <p style={{fontSize:11,fontWeight:600,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--label3)',margin:'0 0 6px',display:'flex',alignItems:'center',gap:6}}>
-              <span style={{width:6,height:6,borderRadius:'50%',background:c.dot}}/>
-              {c.name}
-            </p>
+            <div style={{margin:'0 0 6px'}}>
+              <p style={{fontSize:11,fontWeight:600,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--label3)',margin:0,display:'flex',alignItems:'center',gap:6}}>
+                <span style={{width:6,height:6,borderRadius:'50%',background:c.dot}}/>
+                {c.name}
+                <StoreDistance chain={store} nearestByChain={nearestByChain}/>
+              </p>
+              {nearestByChain?.[store]?.address&&(
+                <p style={{margin:'2px 0 0 12px',fontSize:11,color:'var(--label3)'}}>{nearestByChain[store].address}</p>
+              )}
+            </div>
             <div style={{background:'white',borderRadius:12,overflow:'hidden'}}>
               {items.map(({id,product,qty})=>(
                 <div key={id} className="t3-row" style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px'}}>
@@ -982,10 +1656,281 @@ class ErrorBoundary extends React.Component{
   }
 }
 
+// ── RECEIPT SCANNER ──
+// Tesseract is ~4 MB of wasm, so it only loads when the scanner opens.
+let _tessPromise = null;
+function loadTesseract(){
+  if(_tessPromise) return _tessPromise;
+  _tessPromise = new Promise((res,rej)=>{
+    if(window.Tesseract) return res(window.Tesseract);
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload=()=>res(window.Tesseract);
+    s.onerror=()=>rej(new Error('Kunne ikke hente tekstgenkendelse'));
+    document.head.appendChild(s);
+  });
+  return _tessPromise;
+}
+
+// Thermal receipts OCR far better with contrast pushed hard.
+function preprocess(file){
+  return new Promise((res,rej)=>{
+    const img=new Image(), url=URL.createObjectURL(file);
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      // Upscale small photos, cap large ones — Tesseract likes ~1600px wide
+      const target=1600;
+      const scale=Math.min(3,Math.max(1,target/img.width));
+      const cv=document.createElement('canvas');
+      cv.width=Math.round(img.width*scale);
+      cv.height=Math.round(img.height*scale);
+      const ctx=cv.getContext('2d');
+      ctx.drawImage(img,0,0,cv.width,cv.height);
+      const d=ctx.getImageData(0,0,cv.width,cv.height);
+      const px=d.data;
+      // Greyscale + contrast stretch
+      for(let i=0;i<px.length;i+=4){
+        let v=0.299*px[i]+0.587*px[i+1]+0.114*px[i+2];
+        v=v<110?0:v>165?255:(v-110)*(255/55);
+        px[i]=px[i+1]=px[i+2]=v;
+      }
+      ctx.putImageData(d,0,0);
+      cv.toBlob(b=>b?res(b):rej(new Error('Billedet kunne ikke behandles')),'image/png');
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('Ugyldigt billede'));};
+    img.src=url;
+  });
+}
+
+async function hashFile(file){
+  try{
+    const buf=await file.arrayBuffer();
+    const h=await crypto.subtle.digest('SHA-256',buf);
+    return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }catch{ return null; }
+}
+
+function ReceiptScanner({onClose,activeStore,getByIds,dbReady}){
+  const [stage,setStage]     = useState('idle');   // idle|ocr|review|sending|done|error
+  const [progress,setProg]   = useState(0);
+  const [error,setError]     = useState('');
+  const [rows,setRows]       = useState([]);
+  const [parsed,setParsed]   = useState(null);
+  const [imageHash,setHash]  = useState(null);
+  const [result,setResult]   = useState(null);
+  const fileRef = useRef(null);
+
+  async function handleFile(e){
+    const file=e.target.files?.[0];
+    if(!file) return;
+    setStage('ocr'); setProg(0); setError('');
+    try{
+      const [Tess,clean,hash]=await Promise.all([
+        loadTesseract(), preprocess(file), hashFile(file),
+      ]);
+      setHash(hash);
+      const {data}=await Tess.recognize(clean,'dan+eng',{
+        logger:m=>{ if(m.status==='recognizing text') setProg(Math.round(m.progress*100)); },
+      });
+
+      const p=window.BeeleeReceipt.parseReceipt(data.text||'');
+      setParsed(p);
+      if(!p.items.length){
+        setError('Ingen varelinjer fundet. Prøv et skarpere billede i godt lys.');
+        setStage('error'); return;
+      }
+
+      // Match against the catalogue already in IndexedDB
+      const store = activeStore?.chain || p.store;
+      const cat = await window.ProductDB.search({searchTerm:'',stores:store?[store]:null,limit:4000});
+      const matcher = new window.BeeleeReceipt.ReceiptMatcher(
+        cat.map(x=>({title:x.title,store:x.store,price:x.price,id:x.id,productKey:x.productKey}))
+      );
+      setRows(matcher.matchReceipt(p,store).map((r,i)=>({...r,key:i,include:r.status==='matched'})));
+      setStage('review');
+    }catch(err){
+      setError(err.message||'Noget gik galt'); setStage('error');
+    }
+  }
+
+  const toggle = k => setRows(rs=>rs.map(r=>r.key===k?{...r,include:!r.include}:r));
+  const included = rows.filter(r=>r.include && r.match);
+
+  async function submit(){
+    setStage('sending');
+    try{
+      const token=localStorage.getItem('beelee_token');
+      const res=await fetch(`${API_URL}/api/receipts`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json',
+                 ...(token?{Authorization:`Bearer ${token}`}:{})},
+        body:JSON.stringify({
+          chain: activeStore?.chain || parsed.store,
+          store_id: activeStore?.id || null,
+          purchased_at: parsed.date,
+          printed_total: parsed.printed_total,
+          image_hash: imageHash,
+          lines: included.map(r=>({
+            product_key: r.match.productKey,
+            price: r.receipt.unit_price,
+            match_score: r.score,
+          })),
+        }),
+      });
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.error||'Kunne ikke sende');
+      setResult(data); setStage('done');
+    }catch(err){
+      setError(err.message); setStage('error');
+    }
+  }
+
+  const H = ({children}) => (
+    <p style={{margin:0,fontSize:11,fontWeight:600,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--label3)',padding:'14px 16px 6px'}}>{children}</p>
+  );
+
+  return(
+    <div className="slide-panel" style={{overflowY:'auto',paddingBottom:100}}>
+      <div style={{background:'rgba(242,242,247,.92)',backdropFilter:'blur(20px)',padding:'50px 16px 12px',position:'sticky',top:0,zIndex:10,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <button type="button" onClick={onClose} style={{color:'var(--blue)',fontSize:16,background:'none',border:'none'}}>Luk</button>
+        <span style={{fontSize:16,fontWeight:600}}>Scan kvittering</span>
+        <span style={{width:36}}/>
+      </div>
+
+      {stage==='idle'&&(
+        <div style={{padding:'20px 16px'}}>
+          <div style={{background:'white',borderRadius:14,padding:'28px 20px',textAlign:'center'}}>
+            <div style={{width:56,height:56,borderRadius:'50%',background:'#EAF1FE',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px'}}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3478F6" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+            </div>
+            <p style={{margin:0,fontSize:17,fontWeight:600}}>Tag et billede af bonnen</p>
+            <p style={{margin:'6px 0 0',fontSize:13,color:'var(--label3)',lineHeight:1.5}}>
+              Billedet bliver på telefonen. Kun varelinjer og priser sendes videre.
+            </p>
+            <button type="button" onClick={()=>fileRef.current?.click()}
+              style={{marginTop:18,width:'100%',padding:14,borderRadius:12,background:'#3478F6',color:'white',border:'none',fontSize:16,fontWeight:600}}>
+              Vælg billede
+            </button>
+            <input ref={fileRef} type="file" accept="image/*" capture="environment"
+              onChange={handleFile} style={{display:'none'}}/>
+          </div>
+          {activeStore&&(
+            <p style={{margin:'12px 4px 0',fontSize:12,color:'var(--label3)',textAlign:'center'}}>
+              Registreres som {activeStore.name}
+            </p>
+          )}
+        </div>
+      )}
+
+      {stage==='ocr'&&(
+        <div style={{padding:'60px 24px',textAlign:'center'}}>
+          <span className="spin" style={{width:28,height:28}}/>
+          <p style={{margin:'16px 0 4px',fontSize:16,fontWeight:500}}>Læser bonnen…</p>
+          <p style={{margin:0,fontSize:13,color:'var(--label3)'}}>{progress}%</p>
+          <div style={{margin:'14px auto 0',maxWidth:220,height:4,background:'#E4E4E7',borderRadius:2,overflow:'hidden'}}>
+            <div style={{width:`${progress}%`,height:'100%',background:'#3478F6',transition:'width .3s'}}/>
+          </div>
+        </div>
+      )}
+
+      {stage==='review'&&(
+        <>
+          <div style={{background:'white',margin:'12px 16px 0',borderRadius:12,padding:'12px 14px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <p style={{margin:0,fontSize:15,fontWeight:600}}>{activeStore?.name||parsed?.store||'Ukendt butik'}</p>
+                <p style={{margin:'2px 0 0',fontSize:12,color:'var(--label3)'}}>
+                  {parsed?.date||'Ukendt dato'} · {rows.length} linjer
+                </p>
+              </div>
+              <span style={{fontSize:13,fontWeight:600,color:'#2E7D32'}}>{included.length} valgt</span>
+            </div>
+            {parsed?.warnings?.map((w,i)=>(
+              <p key={i} style={{margin:'8px 0 0',fontSize:11,color:'#8D6E00',background:'#FFF8E1',borderRadius:7,padding:'6px 9px'}}>{w}</p>
+            ))}
+          </div>
+
+          <H>Tjek linjerne</H>
+          <div style={{background:'white',borderRadius:12,margin:'0 16px',overflow:'hidden'}}>
+            {rows.map(r=>(
+              <div key={r.key} onClick={()=>r.match&&toggle(r.key)}
+                style={{display:'flex',alignItems:'center',gap:10,padding:'10px 13px',borderBottom:'.5px solid #F2F2F7',opacity:r.match?1:.55}}>
+                <span style={{width:20,height:20,borderRadius:'50%',flexShrink:0,border:r.include?'none':'1.5px solid #C7C7CC',background:r.include?'#34C759':'transparent',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                  {r.include&&<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                </span>
+                <span style={{flex:1,minWidth:0}}>
+                  <span style={{display:'block',fontSize:13,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                    {r.match?r.match.title:r.receipt.name}
+                  </span>
+                  <span style={{display:'block',fontSize:11,color:'var(--label3)',marginTop:2}}>
+                    {r.receipt.name}
+                    {r.status==='ambiguous'&&<span style={{color:'#E65100'}}> · usikker</span>}
+                    {r.status==='unmatched'&&<span style={{color:'#C62828'}}> · ingen match</span>}
+                  </span>
+                </span>
+                <span style={{fontSize:14,fontWeight:600,flexShrink:0}}>{r.receipt.unit_price.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{padding:'16px'}}>
+            <button type="button" onClick={submit} disabled={!included.length}
+              style={{width:'100%',padding:14,borderRadius:12,background:included.length?'#3478F6':'#C7C7CC',color:'white',border:'none',fontSize:16,fontWeight:600}}>
+              Send {included.length} priser
+            </button>
+            <p style={{margin:'10px 4px 0',fontSize:11,color:'var(--label3)',textAlign:'center',lineHeight:1.5}}>
+              Kun produkt og pris sendes. Billedet forlader aldrig telefonen.
+            </p>
+          </div>
+        </>
+      )}
+
+      {stage==='sending'&&(
+        <div style={{padding:'60px 24px',textAlign:'center'}}>
+          <span className="spin" style={{width:28,height:28}}/>
+          <p style={{margin:'16px 0 0',fontSize:16}}>Sender…</p>
+        </div>
+      )}
+
+      {stage==='done'&&(
+        <div style={{padding:'50px 24px',textAlign:'center'}}>
+          <div style={{width:60,height:60,borderRadius:'50%',background:'#E8F5E9',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2E7D32" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <p style={{margin:0,fontSize:19,fontWeight:600}}>
+            {result?.duplicate?'Allerede registreret':'Tak!'}
+          </p>
+          <p style={{margin:'6px 0 0',fontSize:14,color:'var(--label3)'}}>
+            {result?.duplicate
+              ? 'Den bon er allerede i systemet.'
+              : `${result?.accepted||0} priser tilføjet.`}
+          </p>
+          <button type="button" onClick={onClose}
+            style={{marginTop:22,padding:'13px 28px',borderRadius:12,background:'#3478F6',color:'white',border:'none',fontSize:15,fontWeight:600}}>
+            Færdig
+          </button>
+        </div>
+      )}
+
+      {stage==='error'&&(
+        <div style={{padding:'40px 24px',textAlign:'center'}}>
+          <p style={{margin:0,fontSize:17,fontWeight:600}}>Det gik ikke</p>
+          <p style={{margin:'8px 0 0',fontSize:14,color:'var(--label3)',lineHeight:1.5}}>{error}</p>
+          <button type="button" onClick={()=>{setStage('idle');setError('');}}
+            style={{marginTop:20,padding:'13px 28px',borderRadius:12,background:'#3478F6',color:'white',border:'none',fontSize:15,fontWeight:600}}>
+            Prøv igen
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── APP ──
 function App(){
   const [tab,setTab]=useState('home'); // home | search | basket
   const [detailProduct,setDetailProduct]=useState(null);
+  const [scanning,setScanning]=useState(false);
   const [searchQuery,setSearchQuery]=useState('');
   const [searchCategory,setSearchCategory]=useState('all');
   const [user,setUser]=useState(()=>{
@@ -994,6 +1939,8 @@ function App(){
 
   const{dbReady,total,loading,updated,products,search,getCats,getSubs,getStores,getByIds,getOffers,refresh}=useProducts();
   const{basket,add,remove,setQty,clear,inBasket,getQty}=useBasket();
+  const{coords,status:geoStatus,nearestByChain,locate,
+        candidates,activeStore,shouldAsk,confirmStore,dismissStorePrompt,leaveStore}=useStores();
 
   if(!user)return<LoginScreen onLogin={setUser}/>;
 
@@ -1035,6 +1982,8 @@ function App(){
           <HomeView
             dbReady={dbReady} total={total} loading={loading} updated={updated}
             getOffers={getOffers} getCats={getCats} search={search}
+            geoStatus={geoStatus} locate={locate} nearestByChain={nearestByChain}
+            activeStore={activeStore} leaveStore={leaveStore} onScan={()=>setScanning(true)}
             onProductTap={p=>{setDetailProduct(p);}}
             inBasket={inBasket} onAdd={add} getQty={getQty}
             onSearch={goSearch}
@@ -1044,6 +1993,7 @@ function App(){
           <SearchView
             dbReady={dbReady} total={total} loading={loading} products={products}
             search={search} getCats={getCats} getSubs={getSubs} getStores={getStores}
+            nearestByChain={nearestByChain}
             onProductTap={p=>{setDetailProduct(p);}}
             inBasket={inBasket} onAdd={add} getQty={getQty}
             initialQuery={searchQuery} initialCategory={searchCategory}
@@ -1051,6 +2001,7 @@ function App(){
         )}
         {tab==='basket'&&(
           <BasketView
+            nearestByChain={nearestByChain}
             basket={basket} getByIds={getByIds}
             setQty={setQty} remove={remove} clear={clear} inBasket={inBasket}
           />
@@ -1064,6 +2015,25 @@ function App(){
           onClose={()=>setDetailProduct(null)}
           onAdd={add} inBasket={inBasket(detailProduct.id)} qty={getQty(detailProduct.id)}
           getByIds={getByIds}
+        />
+      )}
+
+      {/* Receipt scanner */}
+      {scanning&&(
+        <ReceiptScanner
+          onClose={()=>setScanning(false)}
+          activeStore={activeStore}
+          getByIds={getByIds}
+          dbReady={dbReady}
+        />
+      )}
+
+      {/* Store confirmation */}
+      {shouldAsk&&(
+        <StoreConfirmModal
+          candidates={candidates}
+          onConfirm={confirmStore}
+          onDismiss={dismissStorePrompt}
         />
       )}
 

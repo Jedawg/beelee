@@ -9,6 +9,7 @@ const DATA_CACHE    = 'beelee-data-v3';
 // cache-busting, which would otherwise create a new multi-MB cache entry
 // on every single load.
 const DATA_KEY = 'beelee-products-data';
+const STORES_KEY = 'beelee-stores-data';
 
 // The scope the SW was registered under — '/' at a domain root,
 // '/beelee/' on GitHub Pages. Everything local is resolved against it.
@@ -80,18 +81,19 @@ self.addEventListener('fetch', (event) => {
   // The data file gains columns over time (subcategory, barcode, nutriscore…),
   // so a stale copy means missing features. Always prefer the network and
   // keep exactly one cached copy under a fixed key.
-  if (url.pathname.includes('products.xlsx')) {
+  if (url.pathname.includes('products.xlsx') || url.pathname.includes('stores.json')) {
     event.respondWith(
       fetch(req)
         .then((res) => {
           if (res.ok) {
             const copy = res.clone();
-            caches.open(DATA_CACHE).then(c => c.put(DATA_KEY, copy));
+            const key = url.pathname.includes('stores.json') ? STORES_KEY : DATA_KEY;
+            caches.open(DATA_CACHE).then(c => c.put(key, copy));
           }
           return res;
         })
         .catch(() => caches.open(DATA_CACHE)
-          .then(c => c.match(DATA_KEY))
+          .then(c => c.match(url.pathname.includes('stores.json') ? STORES_KEY : DATA_KEY))
           .then(hit => hit || new Response('', { status: 503 })))
     );
     return;
