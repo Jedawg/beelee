@@ -102,7 +102,19 @@ jobs:
           echo "Estimation done!"
         continue-on-error: true
 
-      # 11. Verify final output
+      # 11. Push the scrape into Postgres (baseline for crowdsourced prices)
+      - name: 🗄️ Sync to database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "⚠️ DATABASE_URL secret not set — skipping DB sync"
+          else
+            python scrapers/sync_to_db.py
+          fi
+        continue-on-error: true
+
+      # 12. Verify final output
       - name: ✅ Verify output
         run: |
           if [ -f "data/products.xlsx" ]; then
@@ -113,7 +125,7 @@ jobs:
             exit 1
           fi
 
-      # 12. Commit all data files back to GitHub
+      # 13. Commit all data files back to GitHub
       - name: 💾 Commit and push
         run: |
           git config --local user.email "beelee-bot@users.noreply.github.com"
